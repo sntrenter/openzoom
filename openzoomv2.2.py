@@ -14,7 +14,6 @@ import getpass
 #subst Z: C:\zoom
 #
 #if your having trouble with a string having invisible chars .rstrip() might help
-#test for github
 
 def config():
     '''Reads the config.zoom file, containing server names, length for 
