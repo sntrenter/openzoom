@@ -1,0 +1,753 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql.cluster &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../../index.html" />
+    <link rel="up" title="postgresql" href="../postgresql.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" accesskey="U">postgresql</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql.cluster</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># .cluster - PostgreSQL cluster management</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Create, control, and destroy PostgreSQL clusters.</span>
+
+<span class="sd">postgresql.cluster provides a programmer&#39;s interface to controlling a PostgreSQL</span>
+<span class="sd">cluster. It provides direct access to proper signalling interfaces.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">errno</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">subprocess</span> <span class="kn">as</span> <span class="nn">sp</span>
+<span class="kn">from</span> <span class="nn">tempfile</span> <span class="kn">import</span> <span class="n">NamedTemporaryFile</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">api</span> <span class="k">as</span> <span class="n">pg_api</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">configfile</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">installation</span> <span class="k">as</span> <span class="n">pg_inn</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">exceptions</span> <span class="k">as</span> <span class="n">pg_exc</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">driver</span> <span class="k">as</span> <span class="n">pg_driver</span>
+<span class="kn">from</span> <span class="nn">.encodings.aliases</span> <span class="kn">import</span> <span class="n">get_python_name</span>
+<span class="kn">from</span> <span class="nn">.python.os</span> <span class="kn">import</span> <span class="n">close_fds</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;win32&#39;</span><span class="p">,</span> <span class="s">&#39;win64&#39;</span><span class="p">):</span>
+	<span class="kn">from</span> <span class="nn">.port</span> <span class="kn">import</span> <span class="n">signal1_msw</span> <span class="k">as</span> <span class="n">signal</span>
+	<span class="n">pg_kill</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">kill</span>
+	<span class="k">def</span> <span class="nf">namedtemp</span><span class="p">(</span><span class="n">encoding</span><span class="p">):</span>
+		<span class="k">return</span> <span class="n">NamedTemporaryFile</span><span class="p">(</span><span class="n">delete</span> <span class="o">=</span> <span class="bp">False</span><span class="p">,</span> <span class="n">mode</span> <span class="o">=</span> <span class="s">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+	<span class="kn">import</span> <span class="nn">signal</span>
+	<span class="n">pg_kill</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">kill</span>
+	<span class="k">def</span> <span class="nf">namedtemp</span><span class="p">(</span><span class="n">encoding</span><span class="p">):</span>
+		<span class="k">return</span> <span class="n">NamedTemporaryFile</span><span class="p">(</span><span class="n">mode</span> <span class="o">=</span> <span class="s">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ClusterError"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.ClusterError">[docs]</a><span class="k">class</span> <span class="nc">ClusterError</span><span class="p">(</span><span class="n">pg_exc</span><span class="o">.</span><span class="n">Error</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	General cluster error.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;-C000&#39;</span>
+	<span class="n">source</span> <span class="o">=</span> <span class="s">&#39;CLUSTER&#39;</span></div>
+<div class="viewcode-block" id="ClusterInitializationError"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.ClusterInitializationError">[docs]</a><span class="k">class</span> <span class="nc">ClusterInitializationError</span><span class="p">(</span><span class="n">ClusterError</span><span class="p">):</span>
+	<span class="s">&quot;General cluster initialization failure&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;-Cini&#39;</span></div>
+<div class="viewcode-block" id="InitDBError"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.InitDBError">[docs]</a><span class="k">class</span> <span class="nc">InitDBError</span><span class="p">(</span><span class="n">ClusterInitializationError</span><span class="p">):</span>
+	<span class="s">&quot;A non-zero result was returned by the initdb command&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;-Cidb&#39;</span></div>
+<div class="viewcode-block" id="ClusterStartupError"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.ClusterStartupError">[docs]</a><span class="k">class</span> <span class="nc">ClusterStartupError</span><span class="p">(</span><span class="n">ClusterError</span><span class="p">):</span>
+	<span class="s">&quot;Cluster startup failed&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;-Cbot&#39;</span></div>
+<div class="viewcode-block" id="ClusterNotRunningError"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.ClusterNotRunningError">[docs]</a><span class="k">class</span> <span class="nc">ClusterNotRunningError</span><span class="p">(</span><span class="n">ClusterError</span><span class="p">):</span>
+	<span class="s">&quot;Cluster is not running&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;-Cdwn&#39;</span></div>
+<div class="viewcode-block" id="ClusterTimeoutError"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.ClusterTimeoutError">[docs]</a><span class="k">class</span> <span class="nc">ClusterTimeoutError</span><span class="p">(</span><span class="n">ClusterError</span><span class="p">):</span>
+	<span class="s">&quot;Cluster operation timed out&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;-Cout&#39;</span>
+</div>
+<div class="viewcode-block" id="ClusterWarning"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.ClusterWarning">[docs]</a><span class="k">class</span> <span class="nc">ClusterWarning</span><span class="p">(</span><span class="n">pg_exc</span><span class="o">.</span><span class="n">Warning</span><span class="p">):</span>
+	<span class="s">&quot;Warning issued by cluster operations&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;-Cwrn&#39;</span>
+	<span class="n">source</span> <span class="o">=</span> <span class="s">&#39;CLUSTER&#39;</span>
+</div>
+<span class="n">DEFAULT_CLUSTER_ENCODING</span> <span class="o">=</span> <span class="s">&#39;utf-8&#39;</span>
+<span class="n">DEFAULT_CONFIG_FILENAME</span> <span class="o">=</span> <span class="s">&#39;postgresql.conf&#39;</span>
+<span class="n">DEFAULT_HBA_FILENAME</span> <span class="o">=</span> <span class="s">&#39;pg_hba.conf&#39;</span>
+<span class="n">DEFAULT_PID_FILENAME</span> <span class="o">=</span> <span class="s">&#39;postmaster.pid&#39;</span>
+
+<span class="n">initdb_option_map</span> <span class="o">=</span> <span class="p">{</span>
+	<span class="s">&#39;encoding&#39;</span> <span class="p">:</span> <span class="s">&#39;-E&#39;</span><span class="p">,</span>
+	<span class="s">&#39;authentication&#39;</span> <span class="p">:</span> <span class="s">&#39;-A&#39;</span><span class="p">,</span>
+	<span class="s">&#39;user&#39;</span> <span class="p">:</span> <span class="s">&#39;-U&#39;</span><span class="p">,</span>
+	<span class="c"># pwprompt is not supported.</span>
+	<span class="c"># interactive use should be implemented by the application</span>
+	<span class="c"># calling Cluster.init()</span>
+<span class="p">}</span>
+
+<div class="viewcode-block" id="Cluster"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster">[docs]</a><span class="k">class</span> <span class="nc">Cluster</span><span class="p">(</span><span class="n">pg_api</span><span class="o">.</span><span class="n">Cluster</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Interface to a PostgreSQL cluster.</span>
+
+<span class="sd">	Provides mechanisms to start, stop, restart, kill, drop, and initalize a</span>
+<span class="sd">	cluster(data directory).</span>
+
+<span class="sd">	Cluster does not strive to be consistent with ``pg_ctl``. This is considered</span>
+<span class="sd">	to be a base class for managing a cluster, and is intended to be extended to</span>
+<span class="sd">	accommodate for a particular purpose.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">driver</span> <span class="o">=</span> <span class="n">pg_driver</span><span class="o">.</span><span class="n">default</span>
+	<span class="n">installation</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="n">data_directory</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="n">DEFAULT_CLUSTER_ENCODING</span> <span class="o">=</span> <span class="n">DEFAULT_CLUSTER_ENCODING</span>
+	<span class="n">DEFAULT_CONFIG_FILENAME</span> <span class="o">=</span> <span class="n">DEFAULT_CONFIG_FILENAME</span>
+	<span class="n">DEFAULT_PID_FILENAME</span> <span class="o">=</span> <span class="n">DEFAULT_PID_FILENAME</span>
+	<span class="n">DEFAULT_HBA_FILENAME</span> <span class="o">=</span> <span class="n">DEFAULT_HBA_FILENAME</span>
+
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">state</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+			<span class="k">return</span> <span class="s">&#39;running&#39;</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">):</span>
+			<span class="k">return</span> <span class="s">&#39;void&#39;</span>
+		<span class="k">return</span> <span class="s">&#39;stopped&#39;</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span>
+		<span class="k">yield</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&#39;[&#39;</span> <span class="o">+</span> <span class="n">state</span> <span class="o">+</span> <span class="s">&#39;]&#39;</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="s">&#39;running&#39;</span><span class="p">:</span>
+			<span class="k">yield</span> <span class="p">(</span><span class="s">&#39;pid&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="p">)</span>
+
+	<span class="nd">@property</span>
+<div class="viewcode-block" id="Cluster.daemon_path"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.daemon_path">[docs]</a>	<span class="k">def</span> <span class="nf">daemon_path</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Path to the executable to use to startup the cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">installation</span><span class="o">.</span><span class="n">postmaster</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">installation</span><span class="o">.</span><span class="n">postgres</span>
+</div>
+<div class="viewcode-block" id="Cluster.get_pid_from_file"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.get_pid_from_file">[docs]</a>	<span class="k">def</span> <span class="nf">get_pid_from_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The current pid from the postmaster.pid file.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">DEFAULT_PID_FILENAME</span><span class="p">)</span>
+			<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+				<span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">())</span>
+		<span class="k">except</span> <span class="ne">IOError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="ow">in</span> <span class="p">(</span><span class="n">errno</span><span class="o">.</span><span class="n">EIO</span><span class="p">,</span> <span class="n">errno</span><span class="o">.</span><span class="n">ENOENT</span><span class="p">):</span>
+				<span class="k">return</span> <span class="bp">None</span>
+</div>
+	<span class="nd">@property</span>
+<div class="viewcode-block" id="Cluster.pid"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.pid">[docs]</a>	<span class="k">def</span> <span class="nf">pid</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		If we have the subprocess, use the pid on the object.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">pid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_pid_from_file</span><span class="p">()</span>
+		<span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">d</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span>
+			<span class="k">if</span> <span class="n">d</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="k">return</span> <span class="n">d</span><span class="o">.</span><span class="n">pid</span>
+		<span class="k">return</span> <span class="n">pid</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">settings</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;_settings&#39;</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_settings</span> <span class="o">=</span> <span class="n">configfile</span><span class="o">.</span><span class="n">ConfigFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pgsql_dot_conf</span><span class="p">)</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_settings</span>
+
+	<span class="nd">@property</span>
+<div class="viewcode-block" id="Cluster.hba_file"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.hba_file">[docs]</a>	<span class="k">def</span> <span class="nf">hba_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">join</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The path to the HBA file of the cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+			<span class="s">&#39;hba_file&#39;</span><span class="p">,</span>
+			<span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">DEFAULT_HBA_FILENAME</span><span class="p">)</span>
+		<span class="p">)</span>
+</div>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">installation</span> <span class="p">:</span> <span class="s">&quot;installation object&quot;</span><span class="p">,</span>
+		<span class="n">data_directory</span> <span class="p">:</span> <span class="s">&quot;path to the data directory&quot;</span><span class="p">,</span>
+	<span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">installation</span> <span class="o">=</span> <span class="n">installation</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="n">data_directory</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">pgsql_dot_conf</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">,</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DEFAULT_CONFIG_FILENAME</span>
+		<span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">daemon_command</span> <span class="o">=</span> <span class="bp">None</span>
+
+	<span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">format</span> <span class="o">=</span> <span class="s">&quot;{mod}.{name}({ins!r}, {dir!r})&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">):</span>
+		<span class="k">return</span> <span class="n">format</span><span class="p">(</span>
+			<span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__module__</span><span class="p">,</span>
+			<span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">installation</span><span class="p">,</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">,</span>
+		<span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Start the cluster and wait for it to startup.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">wait_until_started</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">self</span>
+
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Stop the cluster and wait for it to shutdown.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">wait_until_stopped</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Cluster.init"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.init">[docs]</a>	<span class="k">def</span> <span class="nf">init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">password</span> <span class="p">:</span> \
+			<span class="s">&quot;Password to assign to the &quot;</span> \
+			<span class="s">&quot;cluster&#39;s superuser(`user` keyword).&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="o">**</span><span class="n">kw</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create the cluster at the given `data_directory` using the</span>
+<span class="sd">		provided keyword parameters as options to the command.</span>
+
+<span class="sd">		`command_option_map` provides the mapping of keyword arguments</span>
+<span class="sd">		to command options.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">initdb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">installation</span><span class="o">.</span><span class="n">initdb</span>
+		<span class="k">if</span> <span class="n">initdb</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">initdb</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">installation</span><span class="o">.</span><span class="n">pg_ctl</span><span class="p">,</span> <span class="s">&#39;initdb&#39;</span><span class="p">,)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">initdb</span> <span class="o">=</span> <span class="p">(</span><span class="n">initdb</span><span class="p">,)</span>
+
+		<span class="k">if</span> <span class="bp">None</span> <span class="ow">in</span> <span class="n">initdb</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="n">ClusterInitializationError</span><span class="p">(</span>
+				<span class="s">&quot;unable to find executable for cluster initialization&quot;</span><span class="p">,</span>
+				<span class="n">details</span> <span class="o">=</span> <span class="p">{</span>
+					<span class="s">&#39;detail&#39;</span> <span class="p">:</span> <span class="s">&quot;The installation does not have &#39;initdb&#39; or &#39;pg_ctl&#39;.&quot;</span><span class="p">,</span>
+				<span class="p">},</span>
+				<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+			<span class="p">)</span>
+		<span class="c"># Transform keyword options into command options for the executable.</span>
+
+		<span class="c"># A default is used rather than looking at the environment to, well,</span>
+		<span class="c"># avoid looking at the environment.</span>
+		<span class="n">kw</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s">&#39;encoding&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">DEFAULT_CLUSTER_ENCODING</span><span class="p">)</span>
+		<span class="n">opts</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">kw</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">x</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;logfile&#39;</span><span class="p">,</span> <span class="s">&#39;extra_arguments&#39;</span><span class="p">):</span>
+				<span class="k">continue</span>
+			<span class="k">if</span> <span class="n">x</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">initdb_option_map</span><span class="p">:</span>
+				<span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;got an unexpected keyword argument </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span><span class="p">(</span><span class="n">x</span><span class="p">,))</span>
+			<span class="n">opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">initdb_option_map</span><span class="p">[</span><span class="n">x</span><span class="p">])</span>
+			<span class="n">opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">kw</span><span class="p">[</span><span class="n">x</span><span class="p">])</span>
+		<span class="n">logfile</span> <span class="o">=</span> <span class="n">kw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;logfile&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">sp</span><span class="o">.</span><span class="n">PIPE</span>
+		<span class="n">extra_args</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span>
+			<span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">kw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;extra_arguments&#39;</span><span class="p">,</span> <span class="p">())</span>
+		<span class="p">])</span>
+
+		<span class="n">supw_file</span> <span class="o">=</span> <span class="p">()</span>
+		<span class="n">supw_tmp</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="n">p</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">password</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="c"># got a superuserpass, store it in a tempfile for initdb</span>
+				<span class="n">supw_tmp</span> <span class="o">=</span> <span class="n">namedtemp</span><span class="p">(</span><span class="n">encoding</span> <span class="o">=</span> <span class="n">get_python_name</span><span class="p">(</span><span class="n">kw</span><span class="p">[</span><span class="s">&#39;encoding&#39;</span><span class="p">]))</span>
+				<span class="n">supw_tmp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">password</span><span class="p">)</span>
+				<span class="n">supw_tmp</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+				<span class="n">supw_file</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;--pwfile=&#39;</span> <span class="o">+</span> <span class="n">supw_tmp</span><span class="o">.</span><span class="n">name</span><span class="p">,)</span>
+
+			<span class="n">cmd</span> <span class="o">=</span> <span class="n">initdb</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39;-D&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">)</span> \
+				<span class="o">+</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">opts</span><span class="p">)</span> \
+				<span class="o">+</span> <span class="n">supw_file</span> \
+				<span class="o">+</span> <span class="n">extra_args</span>
+
+			<span class="n">p</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span>
+				<span class="n">cmd</span><span class="p">,</span>
+				<span class="n">close_fds</span> <span class="o">=</span> <span class="n">close_fds</span><span class="p">,</span>
+				<span class="n">bufsize</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">5</span><span class="p">,</span> <span class="c"># not expecting this to ever be filled.</span>
+				<span class="n">stdin</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+				<span class="n">stdout</span> <span class="o">=</span> <span class="n">logfile</span><span class="p">,</span>
+				<span class="c"># stderr is used to identify a reasonable error message.</span>
+				<span class="n">stderr</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+			<span class="p">)</span>
+			<span class="c"># stdin is not used; it is not desirable for initdb to be attached.</span>
+			<span class="n">p</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+			<span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+				<span class="k">try</span><span class="p">:</span>
+					<span class="n">rc</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+					<span class="k">break</span>
+				<span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+					<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">EINTR</span><span class="p">:</span>
+						<span class="k">raise</span>
+				<span class="k">finally</span><span class="p">:</span>
+					<span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">stdout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+						<span class="n">p</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+			<span class="k">if</span> <span class="n">rc</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+				<span class="c"># initdb returned non-zero, pickup stderr and attach to exception.</span>
+
+				<span class="n">r</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+				<span class="k">try</span><span class="p">:</span>
+					<span class="n">msg</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+				<span class="k">except</span> <span class="ne">UnicodeDecodeError</span><span class="p">:</span>
+					<span class="c"># split up the lines, and use rep.</span>
+					<span class="n">msg</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">linesep</span><span class="o">.</span><span class="n">join</span><span class="p">([</span>
+						<span class="nb">repr</span><span class="p">(</span><span class="n">x</span><span class="p">)[</span><span class="mi">2</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">r</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span>
+					<span class="p">])</span>
+				<span class="k">raise</span> <span class="n">InitDBError</span><span class="p">(</span>
+					<span class="s">&quot;initdb exited with non-zero status&quot;</span><span class="p">,</span>
+					<span class="n">details</span> <span class="o">=</span> <span class="p">{</span>
+						<span class="s">&#39;command&#39;</span><span class="p">:</span> <span class="n">cmd</span><span class="p">,</span>
+						<span class="s">&#39;stderr&#39;</span><span class="p">:</span> <span class="n">msg</span><span class="p">,</span>
+						<span class="s">&#39;stdout&#39;</span><span class="p">:</span> <span class="n">msg</span><span class="p">,</span>
+					<span class="p">},</span>
+					<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+				<span class="p">)</span>
+		<span class="k">finally</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">p</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">stderr</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">stdin</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">stdout</span><span class="p">):</span>
+					<span class="k">if</span> <span class="n">x</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+						<span class="n">x</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+			<span class="k">if</span> <span class="n">supw_tmp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="n">n</span> <span class="o">=</span> <span class="n">supw_tmp</span><span class="o">.</span><span class="n">name</span>
+				<span class="n">supw_tmp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+				<span class="c"># XXX: win32 compensation.</span>
+				<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+					<span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Cluster.drop"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.drop">[docs]</a>	<span class="k">def</span> <span class="nf">drop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Stop the cluster and remove it from the filesystem</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">wait_until_stopped</span><span class="p">()</span>
+			<span class="k">except</span> <span class="n">ClusterTimeoutError</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">kill</span><span class="p">()</span>
+				<span class="k">try</span><span class="p">:</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">wait_until_stopped</span><span class="p">()</span>
+				<span class="k">except</span> <span class="n">ClusterTimeoutError</span><span class="p">:</span>
+					<span class="n">ClusterWarning</span><span class="p">(</span>
+						<span class="s">&#39;cluster failed to shutdown after kill&#39;</span><span class="p">,</span>
+						<span class="n">details</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;hint&#39;</span> <span class="p">:</span> <span class="s">&#39;Shared memory may have been leaked.&#39;</span><span class="p">},</span>
+						<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+					<span class="p">)</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+		<span class="c"># Really, using rm -rf would be the best, but use this for portability.</span>
+		<span class="k">for</span> <span class="n">root</span><span class="p">,</span> <span class="n">dirs</span><span class="p">,</span> <span class="n">files</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">,</span> <span class="n">topdown</span> <span class="o">=</span> <span class="bp">False</span><span class="p">):</span>
+			<span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
+				<span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">name</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">dirs</span><span class="p">:</span>
+				<span class="n">os</span><span class="o">.</span><span class="n">rmdir</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">name</span><span class="p">))</span>	
+		<span class="n">os</span><span class="o">.</span><span class="n">rmdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Cluster.start"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.start">[docs]</a>	<span class="k">def</span> <span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">logfile</span> <span class="p">:</span> <span class="s">&quot;Where to send stderr&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">settings</span> <span class="p">:</span> <span class="s">&quot;Mapping of runtime parameters&quot;</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Start the cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+			<span class="k">return</span>
+		<span class="n">cmd</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">daemon_path</span><span class="p">,</span> <span class="s">&#39;-D&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">settings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="nb">dict</span><span class="p">(</span><span class="n">settings</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+				<span class="n">cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;--{k}={v}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">,</span><span class="n">v</span><span class="o">=</span><span class="n">v</span><span class="p">))</span>
+
+		<span class="n">p</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span>
+			<span class="n">cmd</span><span class="p">,</span>
+			<span class="n">close_fds</span> <span class="o">=</span> <span class="n">close_fds</span><span class="p">,</span>
+			<span class="n">bufsize</span> <span class="o">=</span> <span class="mi">1024</span><span class="p">,</span>
+			<span class="c"># send everything to logfile</span>
+			<span class="n">stdout</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">PIPE</span> <span class="k">if</span> <span class="n">logfile</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">logfile</span><span class="p">,</span>
+			<span class="n">stderr</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">STDOUT</span><span class="p">,</span>
+			<span class="n">stdin</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+		<span class="p">)</span>
+		<span class="k">if</span> <span class="n">logfile</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">p</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+		<span class="n">p</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span> <span class="o">=</span> <span class="n">p</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">daemon_command</span> <span class="o">=</span> <span class="n">cmd</span>
+</div>
+<div class="viewcode-block" id="Cluster.restart"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.restart">[docs]</a>	<span class="k">def</span> <span class="nf">restart</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logfile</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="n">settings</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="n">timeout</span> <span class="o">=</span> <span class="mi">10</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Restart the cluster gracefully.</span>
+
+<span class="sd">		This provides a higher level interface to stopping then starting the</span>
+<span class="sd">		cluster. It will perform the wait operations and block until the</span>
+<span class="sd">		restart is complete.</span>
+
+<span class="sd">		If waiting is not desired, .start() and .stop() should be used directly.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">wait_until_stopped</span><span class="p">(</span><span class="n">timeout</span> <span class="o">=</span> <span class="n">timeout</span><span class="p">)</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+			<span class="k">raise</span> <span class="n">ClusterError</span><span class="p">(</span>
+				<span class="s">&quot;failed to shutdown cluster&quot;</span><span class="p">,</span>
+				<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+			<span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">logfile</span> <span class="o">=</span> <span class="n">logfile</span><span class="p">,</span> <span class="n">settings</span> <span class="o">=</span> <span class="n">settings</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">wait_until_started</span><span class="p">(</span><span class="n">timeout</span> <span class="o">=</span> <span class="n">timeout</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Cluster.reload"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.reload">[docs]</a>	<span class="k">def</span> <span class="nf">reload</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Signal the cluster to reload its configuration file.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">pid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pid</span>
+		<span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">pg_kill</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="n">signal</span><span class="o">.</span><span class="n">SIGHUP</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+				<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">ESRCH</span><span class="p">:</span>
+					<span class="k">raise</span>
+</div>
+<div class="viewcode-block" id="Cluster.stop"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.stop">[docs]</a>	<span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Stop the cluster gracefully waiting for clients to disconnect(SIGTERM).</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">pid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pid</span>
+		<span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">pg_kill</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="n">signal</span><span class="o">.</span><span class="n">SIGTERM</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+				<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">ESRCH</span><span class="p">:</span>
+					<span class="k">raise</span>
+</div>
+<div class="viewcode-block" id="Cluster.shutdown"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.shutdown">[docs]</a>	<span class="k">def</span> <span class="nf">shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Shutdown the cluster as soon as possible, disconnecting clients.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">pid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pid</span>
+		<span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">pg_kill</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="n">signal</span><span class="o">.</span><span class="n">SIGINT</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+				<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">ESRCH</span><span class="p">:</span>
+					<span class="k">raise</span>
+</div>
+<div class="viewcode-block" id="Cluster.kill"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.kill">[docs]</a>	<span class="k">def</span> <span class="nf">kill</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Stop the cluster immediately(SIGKILL).</span>
+
+<span class="sd">		Does *not* wait for shutdown.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">pid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pid</span>
+		<span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">pg_kill</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="n">signal</span><span class="o">.</span><span class="n">SIGKILL</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+				<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">ESRCH</span><span class="p">:</span>
+					<span class="k">raise</span>
+				<span class="c"># already dead, so it would seem.</span>
+</div>
+<div class="viewcode-block" id="Cluster.initialized"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.initialized">[docs]</a>	<span class="k">def</span> <span class="nf">initialized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Whether or not the data directory *appears* to be a valid cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">)</span> <span class="ow">and</span> \
+		<span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pgsql_dot_conf</span><span class="p">)</span> <span class="ow">and</span> \
+		<span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_directory</span><span class="p">,</span> <span class="s">&#39;base&#39;</span><span class="p">)):</span>
+			<span class="k">return</span> <span class="bp">True</span>
+		<span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="Cluster.running"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.running">[docs]</a>	<span class="k">def</span> <span class="nf">running</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Whether or not the postmaster is running.</span>
+
+<span class="sd">		This does *not* mean the cluster is accepting connections.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">r</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="n">pid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_pid_from_file</span><span class="p">()</span>
+				<span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+					<span class="c"># daemon process does not exist, but there&#39;s a pidfile.</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span> <span class="o">=</span> <span class="bp">None</span>
+					<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">()</span>
+				<span class="k">return</span> <span class="bp">False</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="k">return</span> <span class="bp">True</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">pid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_pid_from_file</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="k">return</span> <span class="bp">False</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">pg_kill</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="n">signal</span><span class="o">.</span><span class="n">SIG_DFL</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+				<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">ESRCH</span><span class="p">:</span>
+					<span class="k">raise</span>
+				<span class="k">return</span> <span class="bp">False</span>
+			<span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="Cluster.connector"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.connector">[docs]</a>	<span class="k">def</span> <span class="nf">connector</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a postgresql.driver connector based on the given keywords and</span>
+<span class="sd">		listen_addresses and port configuration in settings.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">host</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">address</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+			<span class="n">host</span> <span class="o">=</span> <span class="n">host</span> <span class="ow">or</span> <span class="s">&#39;localhost&#39;</span><span class="p">,</span>
+			<span class="n">port</span> <span class="o">=</span> <span class="n">port</span> <span class="ow">or</span> <span class="mi">5432</span><span class="p">,</span>
+			<span class="o">**</span><span class="n">kw</span>
+		<span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Cluster.connection"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.connection">[docs]</a>	<span class="k">def</span> <span class="nf">connection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a connection object to the cluster, but do not connect.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">connector</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">)()</span>
+</div>
+<div class="viewcode-block" id="Cluster.connect"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.connect">[docs]</a>	<span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create an established connection from the connector.</span>
+
+<span class="sd">		Cluster must be running.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+			<span class="k">raise</span> <span class="n">ClusterNotRunningError</span><span class="p">(</span>
+				<span class="s">&quot;cannot connect if cluster is not running&quot;</span><span class="p">,</span>
+				<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+			<span class="p">)</span>
+		<span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">connection</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+		<span class="n">x</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+		<span class="k">return</span> <span class="n">x</span>
+</div>
+<div class="viewcode-block" id="Cluster.address"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.address">[docs]</a>	<span class="k">def</span> <span class="nf">address</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Get the host-port pair from the configuration.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">d</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">getset</span><span class="p">((</span>
+			<span class="s">&#39;listen_addresses&#39;</span><span class="p">,</span> <span class="s">&#39;port&#39;</span><span class="p">,</span>
+		<span class="p">))</span>
+		<span class="k">if</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;listen_addresses&#39;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="c"># Prefer localhost over other addresses.</span>
+			<span class="c"># More likely to get a successful connection.</span>
+			<span class="n">addrs</span> <span class="o">=</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;listen_addresses&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)</span>
+			<span class="k">if</span> <span class="s">&#39;localhost&#39;</span> <span class="ow">in</span> <span class="n">addrs</span> <span class="ow">or</span> <span class="s">&#39;*&#39;</span> <span class="ow">in</span> <span class="n">addrs</span><span class="p">:</span>
+				<span class="n">host</span> <span class="o">=</span> <span class="s">&#39;localhost&#39;</span>
+			<span class="k">elif</span> <span class="s">&#39;127.0.0.1&#39;</span> <span class="ow">in</span> <span class="n">addrs</span><span class="p">:</span>
+				<span class="n">host</span> <span class="o">=</span> <span class="s">&#39;127.0.0.1&#39;</span>
+			<span class="k">elif</span> <span class="s">&#39;::1&#39;</span> <span class="ow">in</span> <span class="n">addrs</span><span class="p">:</span>
+				<span class="n">host</span> <span class="o">=</span> <span class="s">&#39;::1&#39;</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="n">host</span> <span class="o">=</span> <span class="n">addrs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">host</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">return</span> <span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;port&#39;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="Cluster.ready_for_connections"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.ready_for_connections">[docs]</a>	<span class="k">def</span> <span class="nf">ready_for_connections</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		If the daemon is running, and is not in startup mode.</span>
+
+<span class="sd">		This only works for clusters configured for TCP/IP connections.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+			<span class="k">return</span> <span class="bp">False</span>
+		<span class="n">e</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="n">host</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">address</span><span class="p">()</span>
+		<span class="n">connection</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+			<span class="n">user</span> <span class="o">=</span> <span class="s">&#39; -*- ping -*- &#39;</span><span class="p">,</span>
+			<span class="n">host</span> <span class="o">=</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="n">port</span><span class="p">,</span>
+			<span class="n">database</span> <span class="o">=</span> <span class="s">&#39;template1&#39;</span><span class="p">,</span>
+			<span class="n">sslmode</span> <span class="o">=</span> <span class="s">&#39;disable&#39;</span><span class="p">,</span>
+		<span class="p">)()</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">connection</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+		<span class="k">except</span> <span class="n">pg_exc</span><span class="o">.</span><span class="n">ClientCannotConnectError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+			<span class="k">for</span> <span class="n">attempt</span> <span class="ow">in</span> <span class="n">err</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">failures</span><span class="p">:</span>
+				<span class="n">x</span> <span class="o">=</span> <span class="n">attempt</span><span class="o">.</span><span class="n">error</span>
+				<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">installation</span><span class="o">.</span><span class="n">version_info</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span><span class="mi">1</span><span class="p">):</span>
+					<span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">(</span>
+						<span class="n">pg_exc</span><span class="o">.</span><span class="n">UndefinedObjectError</span><span class="p">,</span>
+						<span class="n">pg_exc</span><span class="o">.</span><span class="n">AuthenticationSpecificationError</span><span class="p">,</span>
+					<span class="p">)):</span>
+						<span class="c"># undefined user.. whatever...</span>
+						<span class="k">return</span> <span class="bp">True</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">pg_exc</span><span class="o">.</span><span class="n">AuthenticationSpecificationError</span><span class="p">):</span>
+						<span class="k">return</span> <span class="bp">True</span>
+				<span class="c"># configuration file error. ya, that&#39;s probably not going to change.</span>
+				<span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">(</span><span class="n">pg_exc</span><span class="o">.</span><span class="n">CFError</span><span class="p">,</span> <span class="n">pg_exc</span><span class="o">.</span><span class="n">ProtocolError</span><span class="p">)):</span>
+					<span class="k">raise</span> <span class="n">x</span>
+				<span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">pg_exc</span><span class="o">.</span><span class="n">ServerNotReadyError</span><span class="p">):</span>
+					<span class="n">e</span> <span class="o">=</span> <span class="n">x</span>
+					<span class="k">break</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="n">e</span> <span class="o">=</span> <span class="n">err</span>
+		<span class="c"># the else true means we successfully connected with those</span>
+		<span class="c"># credentials... strange, but true..</span>
+		<span class="k">return</span> <span class="n">e</span> <span class="k">if</span> <span class="n">e</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="k">else</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="Cluster.wait_until_started"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.wait_until_started">[docs]</a>	<span class="k">def</span> <span class="nf">wait_until_started</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">timeout</span> <span class="p">:</span> <span class="s">&quot;how long to wait before throwing a timeout exception&quot;</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+		<span class="n">delay</span> <span class="p">:</span> <span class="s">&quot;how long to sleep before re-testing&quot;</span> <span class="o">=</span> <span class="mf">0.05</span><span class="p">,</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		After the `start` method is used, this can be ran in order to block</span>
+<span class="sd">		until the cluster is ready for use.</span>
+
+<span class="sd">		This method loops until `ready_for_connections` returns `True` in</span>
+<span class="sd">		order to make sure that the cluster is actually up.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+		<span class="n">checkpoint</span> <span class="o">=</span> <span class="n">start</span>
+		<span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+			<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">():</span>
+				<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+					<span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span><span class="o">.</span><span class="n">returncode</span>
+					<span class="k">if</span> <span class="n">r</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+						<span class="k">raise</span> <span class="n">ClusterStartupError</span><span class="p">(</span>
+							<span class="s">&quot;postgres daemon terminated&quot;</span><span class="p">,</span>
+							<span class="n">details</span> <span class="o">=</span> <span class="p">{</span>
+								<span class="s">&#39;RESULT&#39;</span> <span class="p">:</span> <span class="n">r</span><span class="p">,</span>
+								<span class="s">&#39;COMMAND&#39;</span> <span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_command</span><span class="p">,</span>
+							<span class="p">},</span>
+							<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+						<span class="p">)</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="k">raise</span> <span class="n">ClusterNotRunningError</span><span class="p">(</span>
+						<span class="s">&quot;postgres daemon has not been started&quot;</span><span class="p">,</span>
+						<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+					<span class="p">)</span>
+			<span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ready_for_connections</span><span class="p">()</span>
+
+			<span class="n">checkpoint</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">r</span> <span class="ow">is</span> <span class="bp">True</span><span class="p">:</span>
+				<span class="k">break</span>
+
+			<span class="k">if</span> <span class="n">checkpoint</span> <span class="o">-</span> <span class="n">start</span> <span class="o">&gt;=</span> <span class="n">timeout</span><span class="p">:</span>
+				<span class="c"># timeout was reached, but raise ServerNotReadyError</span>
+				<span class="c"># to signal to the user that it was *not* due to some unknown</span>
+				<span class="c"># condition, rather it&#39;s *still* starting up.</span>
+				<span class="k">if</span> <span class="n">r</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">pg_exc</span><span class="o">.</span><span class="n">ServerNotReadyError</span><span class="p">):</span>
+					<span class="k">raise</span> <span class="n">r</span>
+				<span class="n">e</span> <span class="o">=</span> <span class="n">ClusterTimeoutError</span><span class="p">(</span>
+					<span class="s">&#39;timeout on startup&#39;</span><span class="p">,</span>
+					<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span>
+				<span class="p">)</span>
+				<span class="k">if</span> <span class="n">r</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">True</span><span class="p">,</span><span class="bp">False</span><span class="p">):</span>
+					<span class="k">raise</span> <span class="n">e</span> <span class="kn">from</span> <span class="nn">r</span>
+				<span class="k">raise</span> <span class="n">e</span>
+			<span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Cluster.wait_until_stopped"><a class="viewcode-back" href="../../reference.html#postgresql.cluster.Cluster.wait_until_stopped">[docs]</a>	<span class="k">def</span> <span class="nf">wait_until_stopped</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">timeout</span> <span class="p">:</span> <span class="s">&quot;how long to wait before throwing a timeout exception&quot;</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+		<span class="n">delay</span> <span class="p">:</span> <span class="s">&quot;how long to sleep before re-testing&quot;</span> <span class="o">=</span> <span class="mf">0.05</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		After the `stop` method is used, this can be ran in order to block until</span>
+<span class="sd">		the cluster is shutdown.</span>
+
+<span class="sd">		Additionally, catching `ClusterTimeoutError` exceptions would be a</span>
+<span class="sd">		starting point for making decisions about whether or not to issue a kill</span>
+<span class="sd">		to the daemon.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+		<span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">()</span> <span class="ow">is</span> <span class="bp">True</span><span class="p">:</span>
+			<span class="c"># pickup the exit code.</span>
+			<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">last_exit_code</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">daemon_process</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">last_exit_code</span> <span class="o">=</span> <span class="n">pg_kill</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_pid_from_file</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+			<span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span> <span class="o">&gt;=</span> <span class="n">timeout</span><span class="p">:</span>
+				<span class="k">raise</span> <span class="n">ClusterTimeoutError</span><span class="p">(</span>
+					<span class="s">&#39;timeout on shutdown&#39;</span><span class="p">,</span>
+					<span class="n">creator</span> <span class="o">=</span> <span class="bp">self</span><span class="p">,</span>
+				<span class="p">)</span>
+			<span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay</span><span class="p">)</span>
+<span class="c">##</span>
+<span class="c"># vim: ts=3:sw=3:noet:</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" >postgresql</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

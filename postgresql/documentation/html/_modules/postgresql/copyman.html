@@ -1,0 +1,941 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql.copyman &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../../index.html" />
+    <link rel="up" title="postgresql" href="../postgresql.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" accesskey="U">postgresql</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql.copyman</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># .copyman - COPY manager</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Manage complex COPY operations; one-to-many COPY streaming.</span>
+
+<span class="sd">Primarily this module houses the `CopyManager` class, and the `transfer`</span>
+<span class="sd">function for a high-level interface to using the `CopyManager`.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">from</span> <span class="nn">abc</span> <span class="kn">import</span> <span class="n">abstractmethod</span><span class="p">,</span> <span class="n">abstractproperty</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Iterator</span>
+<span class="kn">from</span> <span class="nn">.python.element</span> <span class="kn">import</span> <span class="n">Element</span><span class="p">,</span> <span class="n">ElementSet</span>
+<span class="kn">from</span> <span class="nn">.python.structlib</span> <span class="kn">import</span> <span class="n">ulong_unpack</span><span class="p">,</span> <span class="n">ulong_pack</span>
+<span class="kn">from</span> <span class="nn">.protocol.buffer</span> <span class="kn">import</span> <span class="n">pq_message_stream</span>
+<span class="kn">from</span> <span class="nn">.protocol.element3</span> <span class="kn">import</span> <span class="n">CopyData</span><span class="p">,</span> <span class="n">CopyDone</span><span class="p">,</span> <span class="n">Complete</span><span class="p">,</span> <span class="n">cat_messages</span>
+<span class="kn">from</span> <span class="nn">.protocol.xact3</span> <span class="kn">import</span> <span class="n">Complete</span> <span class="k">as</span> <span class="n">xactComplete</span>
+
+<span class="c">#: 10KB buffer for COPY messages by default.</span>
+<span class="n">default_buffer_size</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">10</span>
+
+<span class="k">class</span> <span class="nc">Fault</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+	<span class="k">pass</span>
+
+<div class="viewcode-block" id="ProducerFault"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.ProducerFault">[docs]</a><span class="k">class</span> <span class="nc">ProducerFault</span><span class="p">(</span><span class="n">Fault</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Exception raised when the Producer caused an exception.</span>
+
+<span class="sd">	Normally, Producer faults are fatal.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">manager</span> <span class="o">=</span> <span class="n">manager</span>
+
+	<span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="s">&quot;producer raised exception&quot;</span>
+</div>
+<div class="viewcode-block" id="ReceiverFault"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.ReceiverFault">[docs]</a><span class="k">class</span> <span class="nc">ReceiverFault</span><span class="p">(</span><span class="n">Fault</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Exception raised when Receivers cause an exception.</span>
+
+<span class="sd">	Faults should be trapped if recovery from an exception is</span>
+<span class="sd">	possible, or if the failed receiver is optional to the succes of the</span>
+<span class="sd">	operation.</span>
+
+<span class="sd">	The &#39;manager&#39; attribute is the CopyManager that raised the fault.</span>
+
+<span class="sd">	The &#39;faults&#39; attribute is a dictionary mapping the receiver to the exception</span>
+<span class="sd">	instance raised.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">faults</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">manager</span> <span class="o">=</span> <span class="n">manager</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">faults</span> <span class="o">=</span> <span class="n">faults</span>
+
+	<span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="s">&quot;{0} faults occurred&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">faults</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="CopyFail"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.CopyFail">[docs]</a><span class="k">class</span> <span class="nc">CopyFail</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Exception thrown by the CopyManager when the COPY operation failed.</span>
+
+<span class="sd">	The &#39;manager&#39; attribute the CopyManager that raised the CopyFail.</span>
+
+<span class="sd">	The &#39;reason&#39; attribute is a string indicating why it failed.</span>
+
+<span class="sd">	The &#39;receiver_faults&#39; attribute is a mapping of receivers to exceptions that were</span>
+<span class="sd">	raised on exit.</span>
+
+<span class="sd">	The &#39;producer_fault&#39; attribute specifies if the producer raise an exception</span>
+<span class="sd">	on exit.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">receiver_faults</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">producer_fault</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+	<span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">manager</span> <span class="o">=</span> <span class="n">manager</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">reason</span> <span class="o">=</span> <span class="n">reason</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">receiver_faults</span> <span class="o">=</span> <span class="n">receiver_faults</span> <span class="ow">or</span> <span class="p">{}</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">producer_fault</span> <span class="o">=</span> <span class="n">producer_fault</span>
+
+	<span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">reason</span> <span class="ow">or</span> <span class="s">&#39;copy aborted&#39;</span>
+
+<span class="c"># The identifier for PQv3 copy data.</span></div>
+<span class="n">PROTOCOL_PQv3</span> <span class="o">=</span> <span class="s">&quot;PQv3&quot;</span>
+<span class="c"># The identifier for iterables of copy data sequences.</span>
+<span class="c"># iter([[row1, row2], [row3, row4]])</span>
+<span class="n">PROTOCOL_CHUNKS</span> <span class="o">=</span> <span class="s">&quot;CHUNKS&quot;</span>
+<span class="c"># The protocol identifier for NULL producers and receivers.</span>
+<span class="n">PROTOCOL_NULL</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="k">class</span> <span class="nc">ChunkProtocol</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="n">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;buffer&#39;</span><span class="p">,)</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">buffer</span> <span class="o">=</span> <span class="n">pq_message_stream</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+		<span class="k">return</span> <span class="p">[</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">read</span><span class="p">()]</span>
+
+<span class="c"># Null protocol mapping.</span>
+<span class="k">def</span> <span class="nf">EmptyView</span><span class="p">(</span><span class="n">arg</span><span class="p">):</span>
+	<span class="k">return</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">EmptyList</span><span class="p">(</span><span class="n">arg</span><span class="p">):</span>
+	<span class="k">return</span> <span class="p">[]</span>
+<span class="k">def</span> <span class="nf">ReturnNone</span><span class="p">(</span><span class="n">arg</span><span class="p">):</span>
+	<span class="k">return</span> <span class="bp">None</span>
+<span class="c"># Zero-Transformation</span>
+<span class="k">def</span> <span class="nf">NoTransformation</span><span class="p">(</span><span class="n">arg</span><span class="p">):</span>
+	<span class="k">return</span> <span class="n">arg</span>
+
+<span class="c"># Copy protocols being at the Python level; *not* wire/serialization format.</span>
+<span class="n">copy_protocol_mappings</span> <span class="o">=</span> <span class="p">{</span>
+	<span class="c"># PQv3 -&gt; Chunks</span>
+	<span class="p">(</span><span class="n">PROTOCOL_PQv3</span><span class="p">,</span> <span class="n">PROTOCOL_CHUNKS</span><span class="p">)</span> <span class="p">:</span> <span class="n">ChunkProtocol</span><span class="p">,</span>
+	<span class="c"># Chunks -&gt; PQv3</span>
+	<span class="p">(</span><span class="n">PROTOCOL_CHUNKS</span><span class="p">,</span> <span class="n">PROTOCOL_PQv3</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">cat_messages</span><span class="p">,</span>
+	<span class="c"># Null Producers and Receivers</span>
+	<span class="p">(</span><span class="n">PROTOCOL_NULL</span><span class="p">,</span> <span class="n">PROTOCOL_PQv3</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">EmptyView</span><span class="p">,</span>
+	<span class="p">(</span><span class="n">PROTOCOL_NULL</span><span class="p">,</span> <span class="n">PROTOCOL_CHUNKS</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">EmptyList</span><span class="p">,</span>
+	<span class="p">(</span><span class="n">PROTOCOL_PQv3</span><span class="p">,</span> <span class="n">PROTOCOL_NULL</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">ReturnNone</span><span class="p">,</span>
+	<span class="p">(</span><span class="n">PROTOCOL_CHUNKS</span><span class="p">,</span> <span class="n">PROTOCOL_NULL</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">ReturnNone</span><span class="p">,</span>
+	<span class="c"># Zero Transformations</span>
+	<span class="p">(</span><span class="n">PROTOCOL_NULL</span><span class="p">,</span> <span class="n">PROTOCOL_NULL</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">NoTransformation</span><span class="p">,</span>
+	<span class="p">(</span><span class="n">PROTOCOL_CHUNKS</span><span class="p">,</span> <span class="n">PROTOCOL_CHUNKS</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">NoTransformation</span><span class="p">,</span>
+	<span class="p">(</span><span class="n">PROTOCOL_PQv3</span><span class="p">,</span> <span class="n">PROTOCOL_PQv3</span><span class="p">)</span> <span class="p">:</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">NoTransformation</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="c"># Used to manage the conversions of COPY data.</span>
+<span class="c"># Notably, chunks -&gt; PQv3 or PQv3 -&gt; chunks.</span>
+<span class="k">class</span> <span class="nc">CopyTransformer</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="n">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;current&#39;</span><span class="p">,</span> <span class="s">&#39;transformers&#39;</span><span class="p">,</span> <span class="s">&#39;get&#39;</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source_protocol</span><span class="p">,</span> <span class="n">target_protocols</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">current</span> <span class="o">=</span> <span class="p">{}</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">transformers</span> <span class="o">=</span> <span class="p">{</span>
+			<span class="n">x</span> <span class="p">:</span> <span class="n">copy_protocol_mappings</span><span class="p">[(</span><span class="n">source_protocol</span><span class="p">,</span> <span class="n">x</span><span class="p">)]()</span>
+			<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">target_protocols</span><span class="p">)</span>
+		<span class="p">}</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">get</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">__getitem__</span>
+
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+		<span class="k">for</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">transformer</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformers</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">[</span><span class="n">protocol</span><span class="p">]</span> <span class="o">=</span> <span class="n">transformer</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+<span class="c">##</span>
+<span class="c"># This is the object that does the magic.</span>
+<span class="c"># It tracks the state of the wire.</span>
+<span class="c"># It ends when non-COPY data is found.</span>
+<div class="viewcode-block" id="WireState"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.WireState">[docs]</a><span class="k">class</span> <span class="nc">WireState</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Manages the state of the wire.</span>
+
+<span class="sd">	This class manages three possible positions:</span>
+
+<span class="sd">	 1. Between wire messages</span>
+<span class="sd">	 2. Inside message header</span>
+<span class="sd">	 3. Inside message (with complete header)</span>
+
+<span class="sd">	The wire state will become unusable when the configured condition is True.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;remaining_bytes&#39;</span><span class="p">,</span> <span class="s">&#39;size_fragment&#39;</span><span class="p">,</span> <span class="s">&#39;final_view&#39;</span><span class="p">,</span> <span class="s">&#39;condition&#39;</span><span class="p">,)</span>
+
+<div class="viewcode-block" id="WireState.update"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.WireState.update">[docs]</a>	<span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">view</span><span class="p">,</span> <span class="n">getlen</span> <span class="o">=</span> <span class="n">ulong_unpack</span><span class="p">,</span> <span class="nb">len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Given the state of the COPY and new data, advance the position on the</span>
+<span class="sd">		COPY stream.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="c"># Only usable until the terminating condition.</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">final_view</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;wire state encountered exceptional condition&quot;</span><span class="p">)</span>
+
+		<span class="n">nmessages</span> <span class="o">=</span> <span class="mi">0</span>
+
+		<span class="c"># State carried over from prior run.</span>
+		<span class="n">remaining_bytes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">remaining_bytes</span>
+		<span class="n">size_fragment</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">size_fragment</span>
+
+		<span class="c"># Terminating condition.</span>
+		<span class="n">CONDITION</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">condition</span>
+
+		<span class="c"># Is it a continuation of a message header?</span>
+		<span class="k">if</span> <span class="n">remaining_bytes</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+			<span class="c">##</span>
+			<span class="c"># Inside message header; after message type.</span>
+			<span class="c"># Continue adding to the &#39;size_fragment&#39;</span>
+			<span class="c"># until there are four bytes to unpack.</span>
+			<span class="c">##</span>
+			<span class="n">o</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">size_fragment</span><span class="p">)</span>
+			<span class="n">size_fragment</span> <span class="o">+=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">view</span><span class="p">[:</span><span class="mi">4</span><span class="o">-</span><span class="n">o</span><span class="p">])</span>
+			<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">size_fragment</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+				<span class="c"># The size fragment is completed; only part</span>
+				<span class="c"># of the fragment remains to be consumed.</span>
+				<span class="n">remaining_bytes</span> <span class="o">=</span> <span class="n">getlen</span><span class="p">(</span><span class="n">size_fragment</span><span class="p">)</span> <span class="o">-</span> <span class="n">o</span>
+				<span class="n">size_fragment</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">size_fragment</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">4</span>
+				<span class="c"># size_fragment got updated..</span>
+
+		<span class="k">if</span> <span class="n">remaining_bytes</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+			<span class="n">vlen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+			<span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+				<span class="k">if</span> <span class="n">remaining_bytes</span><span class="p">:</span>
+					<span class="c">##</span>
+					<span class="c"># Inside message body. Message length has been unpacked.</span>
+					<span class="c">##</span>
+					<span class="n">view</span> <span class="o">=</span> <span class="n">view</span><span class="p">[</span><span class="n">remaining_bytes</span><span class="p">:]</span>
+					<span class="c"># How much is remaining now?</span>
+					<span class="n">rb</span> <span class="o">=</span> <span class="n">remaining_bytes</span> <span class="o">-</span> <span class="n">vlen</span>
+					<span class="k">if</span> <span class="n">rb</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+						<span class="c"># Finished it.</span>
+						<span class="n">vlen</span> <span class="o">=</span> <span class="o">-</span><span class="n">rb</span>
+						<span class="n">remaining_bytes</span> <span class="o">=</span> <span class="mi">0</span>
+						<span class="n">nmessages</span> <span class="o">+=</span> <span class="mi">1</span>
+					<span class="k">else</span><span class="p">:</span>
+						<span class="n">vlen</span> <span class="o">=</span> <span class="mi">0</span>
+						<span class="n">remaining_bytes</span> <span class="o">=</span> <span class="n">rb</span>
+				<span class="c">##</span>
+				<span class="c"># In between protocol messages.</span>
+				<span class="c">##</span>
+				<span class="k">if</span> <span class="ow">not</span> <span class="n">view</span><span class="p">:</span>
+					<span class="c"># no more data to analyze</span>
+					<span class="k">break</span>
+				<span class="c"># There is at least one byte in the view.</span>
+				<span class="k">if</span> <span class="n">CONDITION</span><span class="p">(</span><span class="n">view</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+					<span class="c"># State is dead now.</span>
+					<span class="c"># User needs to handle unexpected message, then continue.</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">final_view</span> <span class="o">=</span> <span class="n">view</span>
+					<span class="k">assert</span> <span class="n">remaining_bytes</span> <span class="o">==</span> <span class="mi">0</span>
+					<span class="k">break</span>
+				<span class="k">if</span> <span class="n">vlen</span> <span class="o">&lt;</span> <span class="mi">5</span><span class="p">:</span>
+					<span class="c"># Header continuation.</span>
+					<span class="n">remaining_bytes</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+					<span class="n">view</span> <span class="o">=</span> <span class="n">view</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+					<span class="n">size_fragment</span> <span class="o">+=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+					<span class="c"># Not enough left for the header of the next message?</span>
+					<span class="k">break</span>
+				<span class="c"># Update remaining_bytes to include the header, and start over.</span>
+				<span class="n">remaining_bytes</span> <span class="o">=</span> <span class="n">getlen</span><span class="p">(</span><span class="n">view</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="mi">5</span><span class="p">])</span> <span class="o">+</span> <span class="mi">1</span>
+
+		<span class="c"># Update the state for the next update.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">remaining_bytes</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">size_fragment</span> <span class="o">=</span> <span class="p">(</span>
+			<span class="n">remaining_bytes</span><span class="p">,</span> <span class="n">size_fragment</span><span class="p">,</span>
+		<span class="p">)</span>
+		<span class="c"># Emit the number of messages &quot;consumed&quot; this round.</span>
+		<span class="k">return</span> <span class="n">nmessages</span>
+</div>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">condition</span> <span class="o">=</span> <span class="p">(</span><span class="n">CopyData</span><span class="o">.</span><span class="n">type</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">__ne__</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;f&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">int</span><span class="p">)</span> <span class="k">else</span> <span class="n">CopyData</span><span class="o">.</span><span class="n">type</span><span class="o">.</span><span class="n">__ne__</span><span class="p">)):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">remaining_bytes</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">size_fragment</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">final_view</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">condition</span> <span class="o">=</span> <span class="n">condition</span>
+</div>
+<span class="k">class</span> <span class="nc">Fitting</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;FITTING&#39;</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">yield</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;[&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">+</span> <span class="s">&#39;]&#39;</span>
+
+	<span class="nd">@abstractproperty</span>
+	<span class="k">def</span> <span class="nf">protocol</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The COPY data format produced or consumed.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="c"># Used to setup the Receiver/Producer</span>
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">pass</span>
+
+	<span class="c"># Used to tear down the Receiver/Producer</span>
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="k">pass</span>
+
+<span class="k">class</span> <span class="nc">Producer</span><span class="p">(</span><span class="n">Fitting</span><span class="p">,</span> <span class="n">Iterator</span><span class="p">):</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;PRODUCER&#39;</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_e_metas</span><span class="p">():</span>
+			<span class="k">yield</span> <span class="n">x</span>
+		<span class="k">yield</span> <span class="s">&#39;data&#39;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_bytes</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span> <span class="o">+</span> <span class="s">&#39;MB&#39;</span>
+		<span class="k">yield</span> <span class="s">&#39;messages&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">total_messages</span>
+		<span class="k">yield</span> <span class="s">&#39;average size&#39;</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_bytes</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">total_messages</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">total_messages</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">total_bytes</span> <span class="o">=</span> <span class="mi">0</span>
+
+	<span class="nd">@abstractmethod</span>
+	<span class="k">def</span> <span class="nf">realign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Method implemented by producers that emit COPY data that is not</span>
+<span class="sd">		guaranteed to be aligned.</span>
+
+<span class="sd">		This is only necessary in failure cases where receivers still need more</span>
+<span class="sd">		data to complete the message.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Produce the next set of data.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+<span class="k">class</span> <span class="nc">Receiver</span><span class="p">(</span><span class="n">Fitting</span><span class="p">):</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;RECEIVER&#39;</span>
+
+	<span class="nd">@abstractmethod</span>
+	<span class="k">def</span> <span class="nf">transmit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Finish the reception of the accepted data.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abstractmethod</span>
+	<span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Take the data object to be processed.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="NullProducer"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.NullProducer">[docs]</a><span class="k">class</span> <span class="nc">NullProducer</span><span class="p">(</span><span class="n">Producer</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Produces no copy data.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">()</span>
+	<span class="n">protocol</span> <span class="o">=</span> <span class="n">PROTOCOL_NULL</span>
+
+	<span class="k">def</span> <span class="nf">realign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c"># Never needs to realigned.</span>
+		<span class="k">pass</span>
+
+	<span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">raise</span> <span class="ne">StopIteration</span>
+</div>
+<span class="k">class</span> <span class="nc">IteratorProducer</span><span class="p">(</span><span class="n">Producer</span><span class="p">):</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;iterator&#39;</span><span class="p">,)</span>
+	<span class="n">protocol</span> <span class="o">=</span> <span class="n">PROTOCOL_CHUNKS</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">iterator</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">iterator</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">iterator</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__next__</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">iterator</span><span class="o">.</span><span class="n">__next__</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">realign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c"># Never needs to realign; data is emitted on message boundaries.</span>
+		<span class="k">pass</span>
+
+	<span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">next</span> <span class="o">=</span> <span class="nb">next</span><span class="p">):</span>
+		<span class="n">n</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">iterator</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">total_messages</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">total_bytes</span> <span class="o">+=</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">len</span><span class="p">,</span> <span class="n">n</span><span class="p">))</span>
+		<span class="k">return</span> <span class="n">n</span>
+
+<div class="viewcode-block" id="ProtocolProducer"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.ProtocolProducer">[docs]</a><span class="k">class</span> <span class="nc">ProtocolProducer</span><span class="p">(</span><span class="n">Producer</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Producer using a PQv3 data stream.</span>
+
+<span class="sd">	Normally, this class needs to be subclassed as it assumes that the given</span>
+<span class="sd">	recv_into function will write COPY messages.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">protocol</span> <span class="o">=</span> <span class="n">PROTOCOL_PQv3</span>
+
+	<span class="nd">@abstractmethod</span>
+<div class="viewcode-block" id="ProtocolProducer.recover"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.ProtocolProducer.recover">[docs]</a>	<span class="k">def</span> <span class="nf">recover</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">view</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Given a view containing data read from the wire, recover the</span>
+<span class="sd">		controller&#39;s state.</span>
+
+<span class="sd">		This needs to be implemented by subclasses in order for the</span>
+<span class="sd">		ProtocolReceiver to pass control back to the original state machine.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="c">##</span>
+	<span class="c"># When a COPY is interrupted, this can be used to accommodate</span>
+	<span class="c"># the original state machine to identify the message boundaries.</span></div>
+	<span class="k">def</span> <span class="nf">realign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span>
+
+		<span class="k">if</span> <span class="n">s</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="c"># It&#39;s already aligned.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(())</span><span class="o">.</span><span class="n">__next__</span>
+			<span class="k">return</span>
+
+		<span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">final_view</span><span class="p">:</span>
+			<span class="c"># It was at the end or non-COPY.</span>
+			<span class="n">for_producer</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">final_view</span><span class="p">)</span>
+			<span class="n">for_receivers</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+		<span class="k">elif</span> <span class="n">s</span><span class="o">.</span><span class="n">remaining_bytes</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+			<span class="c"># In the middle of a message header.</span>
+			<span class="n">for_producer</span> <span class="o">=</span> <span class="n">CopyData</span><span class="o">.</span><span class="n">type</span> <span class="o">+</span> <span class="n">s</span><span class="o">.</span><span class="n">size_fragment</span>
+			<span class="c"># receivers:</span>
+			<span class="n">header</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">size_fragment</span><span class="o">.</span><span class="n">ljust</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\x00</span><span class="s">&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\x04</span><span class="s">&#39;</span><span class="p">)</span>
+			<span class="c"># Don&#39;t include the already sent parts.</span>
+			<span class="n">buf</span> <span class="o">=</span> <span class="n">header</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">size_fragment</span><span class="p">):]</span>
+			<span class="n">bodylen</span> <span class="o">=</span> <span class="n">ulong_unpack</span><span class="p">(</span><span class="n">header</span><span class="p">)</span> <span class="o">-</span> <span class="mi">4</span>
+			<span class="c"># This will often cause an invalid copy data error,</span>
+			<span class="c"># but it doesn&#39;t matter much because we will issue a copy fail.</span>
+			<span class="n">buf</span> <span class="o">+=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\x00</span><span class="s">&#39;</span> <span class="o">*</span> <span class="n">bodylen</span>
+			<span class="n">for_receivers</span> <span class="o">=</span> <span class="n">buf</span>
+		<span class="k">elif</span> <span class="n">s</span><span class="o">.</span><span class="n">remaining_bytes</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+			<span class="c"># In the middle of a message.</span>
+			<span class="n">for_producer</span> <span class="o">=</span> <span class="n">CopyData</span><span class="o">.</span><span class="n">type</span> <span class="o">+</span> <span class="n">ulong_pack</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">remaining_bytes</span> <span class="o">+</span> <span class="mi">4</span><span class="p">)</span>
+			<span class="n">for_receivers</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\x00</span><span class="s">&#39;</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">remaining_bytes</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">for_producer</span> <span class="o">=</span> <span class="n">for_receivers</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">recover</span><span class="p">(</span><span class="n">for_producer</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">for_receivers</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">((</span><span class="n">for_receivers</span><span class="p">,))</span><span class="o">.</span><span class="n">__next__</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(())</span><span class="o">.</span><span class="n">__next__</span>
+
+	<span class="k">def</span> <span class="nf">process_copy_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">view</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">total_messages</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">final_view</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="c"># It&#39;s not COPY data.</span>
+			<span class="n">fv</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">final_view</span>
+			<span class="c"># Only publish up to the final_view.</span>
+			<span class="k">if</span> <span class="n">fv</span><span class="p">:</span>
+				<span class="n">view</span> <span class="o">=</span> <span class="n">view</span><span class="p">[:</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">fv</span><span class="p">)]</span>
+			<span class="c"># The next next() will handle the async, error, or completion.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">recover</span><span class="p">(</span><span class="n">fv</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">total_bytes</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">view</span>
+
+	<span class="c"># Given a view, begin tracking the state of the wire.</span>
+	<span class="k">def</span> <span class="nf">track_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">view</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">WireState</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">recv_view</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">process_copy_data</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+
+	<span class="c"># The usual method for receiving more data.</span>
+	<span class="k">def</span> <span class="nf">recv_view</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">view</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">buffer_view</span><span class="p">[:</span><span class="bp">self</span><span class="o">.</span><span class="n">recv_into</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">buffer_size</span><span class="p">)]</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">view</span><span class="p">:</span>
+			<span class="c"># Zero read; let the subclass handle the situation.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">recover</span><span class="p">(</span><span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">))</span>
+			<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span><span class="p">()</span>
+		<span class="n">view</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">process_copy_data</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">view</span>
+
+	<span class="k">def</span> <span class="nf">nextchunk</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;producer not properly initialized&quot;</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">recv_into</span> <span class="p">:</span> <span class="s">&quot;callable taking writable buffer and size&quot;</span><span class="p">,</span>
+		<span class="n">buffer_size</span> <span class="o">=</span> <span class="n">default_buffer_size</span>
+	<span class="p">):</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">recv_into</span> <span class="o">=</span> <span class="n">recv_into</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">buffer_size</span> <span class="o">=</span> <span class="n">buffer_size</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">buffer</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">(</span><span class="n">buffer_size</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">buffer_view</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<span class="k">class</span> <span class="nc">StatementProducer</span><span class="p">(</span><span class="n">ProtocolProducer</span><span class="p">):</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;statement&#39;</span><span class="p">,</span> <span class="s">&#39;parameters&#39;</span><span class="p">,)</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_e_metas</span><span class="p">():</span>
+			<span class="k">yield</span> <span class="n">x</span>
+
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">state</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">return</span> <span class="s">&#39;created&#39;</span>
+		<span class="k">return</span> <span class="s">&#39;producing&#39;</span>
+
+	<span class="k">def</span> <span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">command</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="o">.</span><span class="n">command</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">statement</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">pq</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">recv_into</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">statement</span> <span class="o">=</span> <span class="n">statement</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="n">args</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span> <span class="o">=</span> <span class="bp">None</span>
+
+	<span class="c">##</span>
+	<span class="c"># Take any data held by the statement&#39;s chunks and connection.</span>
+	<span class="k">def</span> <span class="nf">confiscate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">next</span> <span class="o">=</span> <span class="nb">next</span><span class="p">):</span>
+		<span class="n">current</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="k">while</span> <span class="ow">not</span> <span class="n">current</span><span class="p">:</span>
+				<span class="n">current</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="p">))</span>
+		<span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+			<span class="k">if</span> <span class="ow">not</span> <span class="n">current</span><span class="p">:</span>
+				<span class="c"># End of COPY.</span>
+				<span class="k">raise</span>
+		<span class="n">pq</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">pq</span>
+		<span class="nb">buffer</span> <span class="o">=</span> <span class="n">cat_messages</span><span class="p">(</span><span class="n">current</span><span class="p">)</span> <span class="o">+</span> <span class="n">pq</span><span class="o">.</span><span class="n">message_buffer</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span> <span class="o">+</span> <span class="p">(</span><span class="n">pq</span><span class="o">.</span><span class="n">read_data</span> <span class="ow">or</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+		<span class="n">view</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="nb">buffer</span><span class="p">)</span>
+		<span class="n">pq</span><span class="o">.</span><span class="n">read_data</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="n">pq</span><span class="o">.</span><span class="n">message_buffer</span><span class="o">.</span><span class="n">truncate</span><span class="p">()</span>
+		<span class="c"># Reconstruct the buffer from the already parsed lines.</span>
+		<span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">track_state</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+		<span class="c"># XXX: Better way? Probably shouldn&#39;t do the full track_state if complete..</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="o">.</span><span class="n">_xact</span><span class="o">.</span><span class="n">state</span> <span class="ow">is</span> <span class="n">xactComplete</span><span class="p">:</span>
+			<span class="c"># It&#39;s over, don&#39;t hand off to recv_view.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">confiscate</span>
+			<span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">final_view</span> <span class="ow">is</span> <span class="bp">None</span>
+		<span class="k">return</span> <span class="n">r</span>
+
+	<span class="k">def</span> <span class="nf">recover</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">view</span><span class="p">):</span>
+		<span class="c"># Method used when non-COPY data is found.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">pq</span><span class="o">.</span><span class="n">message_buffer</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="n">view</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">confiscate</span>
+
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__enter__</span><span class="p">()</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;receiver already used&quot;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">chunks</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span>
+		<span class="c"># Start by confiscating the connection state.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">nextchunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">confiscate</span>
+
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="k">if</span> <span class="n">typ</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+			<span class="n">db</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span>
+			<span class="k">if</span> <span class="ow">not</span> <span class="n">db</span><span class="o">.</span><span class="n">closed</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="o">.</span><span class="n">_xact</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="c"># The COPY transaction is still happening,</span>
+				<span class="c"># force an interrupt if the connection still exists.</span>
+				<span class="n">db</span><span class="o">.</span><span class="n">interrupt</span><span class="p">()</span>
+				<span class="k">if</span> <span class="n">db</span><span class="o">.</span><span class="n">pq</span><span class="o">.</span><span class="n">xact</span><span class="p">:</span>
+					<span class="c"># Raise, CopyManager should trap.</span>
+					<span class="n">db</span><span class="o">.</span><span class="n">_pq_complete</span><span class="p">()</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__exit__</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">NullReceiver</span><span class="p">(</span><span class="n">Receiver</span><span class="p">):</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">()</span>
+	<span class="n">protocol</span> <span class="o">=</span> <span class="n">PROTOCOL_NULL</span>
+	<span class="n">state</span> <span class="o">=</span> <span class="s">&#39;null&#39;</span>
+
+	<span class="k">def</span> <span class="nf">transmit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c"># Nothing to do.</span>
+		<span class="k">pass</span>
+
+	<span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+		<span class="k">pass</span>
+
+<span class="k">class</span> <span class="nc">ProtocolReceiver</span><span class="p">(</span><span class="n">Receiver</span><span class="p">):</span>
+	<span class="n">protocol</span> <span class="o">=</span> <span class="n">PROTOCOL_PQv3</span>
+	<span class="n">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;send&#39;</span><span class="p">,</span> <span class="s">&#39;view&#39;</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">send</span><span class="p">):</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">send</span> <span class="o">=</span> <span class="n">send</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">view</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">view</span> <span class="o">=</span> <span class="n">data</span>
+
+	<span class="k">def</span> <span class="nf">transmit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">view</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">view</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">view</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">view</span><span class="p">):]</span>
+
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span>
+
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="k">pass</span>
+
+<span class="k">class</span> <span class="nc">StatementReceiver</span><span class="p">(</span><span class="n">ProtocolReceiver</span><span class="p">):</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;statement&#39;</span><span class="p">,</span> <span class="s">&#39;parameters&#39;</span><span class="p">,)</span>
+	<span class="n">__slots__</span> <span class="o">=</span> <span class="n">ProtocolReceiver</span><span class="o">.</span><span class="n">__slots__</span> <span class="o">+</span> <span class="n">_e_factors</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39;xact&#39;</span><span class="p">,)</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">yield</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;[&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">+</span> <span class="s">&#39;]&#39;</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">statement</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">statement</span> <span class="o">=</span> <span class="n">statement</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="n">parameters</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">xact</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">pq</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">send</span><span class="p">,)</span>
+
+	<span class="c"># XXX: A bit of a hack...</span>
+	<span class="c"># This is actually a good indication that statements need a .copy()</span>
+	<span class="c"># execution method for producing a &quot;CopyCursor&quot; that reads or writes.</span>
+	<span class="k">class</span> <span class="nc">WireReady</span><span class="p">(</span><span class="ne">BaseException</span><span class="p">):</span>
+		<span class="k">pass</span>
+	<span class="k">def</span> <span class="nf">raise_wire_ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">raise</span> <span class="bp">self</span><span class="o">.</span><span class="n">WireReady</span><span class="p">()</span>
+		<span class="k">yield</span> <span class="bp">None</span>
+
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">iter</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">):</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__enter__</span><span class="p">()</span>
+		<span class="c"># Get the connection in the COPY state.</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">load_chunks</span><span class="p">(</span>
+				<span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">raise_wire_ready</span><span class="p">()),</span> <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">parameters</span>
+			<span class="p">)</span>
+		<span class="k">except</span> <span class="bp">self</span><span class="o">.</span><span class="n">WireReady</span><span class="p">:</span>
+			<span class="c"># It&#39;s a BaseException; nothing should trap it.</span>
+			<span class="c"># Note the transaction object; we&#39;ll use it on exit.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">xact</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">pq</span><span class="o">.</span><span class="n">xact</span>
+
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">xact</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="c"># Nothing to do.</span>
+			<span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__exit__</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">view</span><span class="p">:</span>
+			<span class="c"># The realigned producer emitted the necessary</span>
+			<span class="c"># data for message boundary alignment.</span>
+			<span class="c">#</span>
+			<span class="c"># In this case, we unconditionally fail.</span>
+			<span class="n">pq</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">pq</span>
+			<span class="c"># There shouldn&#39;t be any message_data, atm.</span>
+			<span class="n">pq</span><span class="o">.</span><span class="n">message_data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">view</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">_pq_complete</span><span class="p">()</span>
+			<span class="c"># It is possible for a non-alignment view to exist in cases of</span>
+			<span class="c"># faults. However, exit should *not* be called in those cases.</span>
+			<span class="c">##</span>
+		<span class="k">elif</span> <span class="n">typ</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="c"># Success?</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">xact</span><span class="o">.</span><span class="n">messages</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">xact</span><span class="o">.</span><span class="n">CopyDoneSequence</span>
+			<span class="c"># If not, this will blow up.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">_pq_complete</span><span class="p">()</span>
+			<span class="c"># Find the complete message for command and count.</span>
+			<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">xact</span><span class="o">.</span><span class="n">messages_received</span><span class="p">():</span>
+				<span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;type&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span> <span class="o">==</span> <span class="n">Complete</span><span class="o">.</span><span class="n">type</span><span class="p">:</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">_complete_message</span> <span class="o">=</span> <span class="n">x</span>
+		<span class="k">elif</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+			<span class="c"># Likely raises. CopyManager should trap.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">statement</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">_pq_complete</span><span class="p">()</span>
+
+		<span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__exit__</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_complete_message</span><span class="o">.</span><span class="n">extract_count</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">command</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_complete_message</span><span class="o">.</span><span class="n">extract_command</span><span class="p">()</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="CallReceiver"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.CallReceiver">[docs]</a><span class="k">class</span> <span class="nc">CallReceiver</span><span class="p">(</span><span class="n">Receiver</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Call the given object with a list of COPY lines.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;callable&#39;</span><span class="p">,)</span>
+	<span class="n">protocol</span> <span class="o">=</span> <span class="n">PROTOCOL_CHUNKS</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">callable</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">callable</span> <span class="o">=</span> <span class="nb">callable</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">transmit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">callable</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="o">=</span> <span class="bp">None</span>
+
+	<span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lines</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="o">=</span> <span class="n">lines</span>
+</div>
+<div class="viewcode-block" id="CopyManager"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.CopyManager">[docs]</a><span class="k">class</span> <span class="nc">CopyManager</span><span class="p">(</span><span class="n">Element</span><span class="p">,</span> <span class="n">Iterator</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A class for managing COPY operations.</span>
+
+<span class="sd">	Connects the producer to the receivers.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;COPY&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;producer&#39;</span><span class="p">,</span> <span class="s">&#39;receivers&#39;</span><span class="p">,)</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">yield</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;[&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">+</span> <span class="s">&#39;]&#39;</span>
+
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">state</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">return</span> <span class="s">&#39;initialized&#39;</span>
+		<span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">total_messages</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39; messages transferred&#39;</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">producer</span><span class="p">,</span> <span class="o">*</span><span class="n">receivers</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">producer</span> <span class="o">=</span> <span class="n">producer</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">transformer</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">receivers</span> <span class="o">=</span> <span class="n">ElementSet</span><span class="p">(</span><span class="n">receivers</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_seen_stop_iteration</span> <span class="o">=</span> <span class="bp">False</span>
+		<span class="n">rp</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+		<span class="n">add</span> <span class="o">=</span> <span class="n">rp</span><span class="o">.</span><span class="n">add</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="p">:</span>
+			<span class="n">add</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">protocol</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">protocols</span> <span class="o">=</span> <span class="n">rp</span>
+
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;copy already started&quot;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_stats</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">transformer</span> <span class="o">=</span> <span class="n">CopyTransformer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">protocol</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">protocols</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">__enter__</span><span class="p">()</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="p">:</span>
+				<span class="n">x</span><span class="o">.</span><span class="n">__enter__</span><span class="p">()</span>
+		<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__exit__</span><span class="p">(</span><span class="o">*</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">())</span>
+		<span class="k">return</span> <span class="bp">self</span>
+
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="c">##</span>
+		<span class="c"># Exiting the CopyManager is a fairly complex operation.</span>
+		<span class="c">#</span>
+		<span class="c"># In cases of failure, re-alignment may need to happen</span>
+		<span class="c"># for when the receivers are not on a message boundary.</span>
+		<span class="c">##</span>
+		<span class="k">if</span> <span class="n">typ</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+			<span class="c"># Don&#39;t bother, it&#39;s an interrupt or sufficient resources.</span>
+			<span class="k">return</span>
+
+		<span class="n">profail</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="c"># Does nothing if the COPY was successful.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">realign</span><span class="p">()</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="c">##</span>
+				<span class="c"># If the producer is not aligned to a message boundary,</span>
+				<span class="c"># it can emit completion data that will put the receivers</span>
+				<span class="c"># back on track.</span>
+				<span class="c"># This last service call will move that data onto the receivers.</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">_service_producer</span><span class="p">()</span>
+				<span class="c">##</span>
+				<span class="c"># The receivers need to handle any new data in their __exit__.</span>
+			<span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+				<span class="c"># No re-alignment needed.</span>
+				<span class="k">pass</span>
+
+			<span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">__exit__</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+		<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">x</span><span class="p">:</span>
+			<span class="c"># reference profail later.</span>
+			<span class="n">profail</span> <span class="o">=</span> <span class="n">x</span>
+
+		<span class="c"># No receivers? It wasn&#39;t a success.</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="n">CopyFail</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;no receivers&quot;</span><span class="p">,</span> <span class="n">producer_fault</span> <span class="o">=</span> <span class="n">profail</span><span class="p">)</span>
+
+		<span class="n">exit_faults</span> <span class="o">=</span> <span class="p">{}</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="p">:</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">x</span><span class="o">.</span><span class="n">__exit__</span><span class="p">(</span><span class="n">typ</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+				<span class="n">exit_faults</span><span class="p">[</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span> <span class="n">e</span>
+
+		<span class="k">if</span> <span class="n">typ</span> <span class="ow">or</span> <span class="n">exit_faults</span> <span class="ow">or</span> <span class="n">profail</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_seen_stop_iteration</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="n">CopyFail</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+				<span class="s">&quot;could not complete the COPY operation&quot;</span><span class="p">,</span>
+				<span class="n">receiver_faults</span> <span class="o">=</span> <span class="n">exit_faults</span> <span class="ow">or</span> <span class="bp">None</span><span class="p">,</span>
+				<span class="n">producer_fault</span> <span class="o">=</span> <span class="n">profail</span>
+			<span class="p">)</span>
+
+<div class="viewcode-block" id="CopyManager.reconcile"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.CopyManager.reconcile">[docs]</a>	<span class="k">def</span> <span class="nf">reconcile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Reconcile a receiver that faulted.</span>
+
+<span class="sd">		This method should be used to add back a receiver that failed to</span>
+<span class="sd">		complete its write operation, but is capable of completing the</span>
+<span class="sd">		operation at this time.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">protocol</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">protocols</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;cannot add new receivers to copy operations&quot;</span><span class="p">)</span>
+		<span class="n">r</span><span class="o">.</span><span class="n">transmit</span><span class="p">()</span>
+		<span class="c"># Okay, add it back.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+</div>
+	<span class="k">def</span> <span class="nf">_service_producer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c"># Setup current data.</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="p">:</span>
+			<span class="c"># No receivers to take the data.</span>
+			<span class="k">raise</span> <span class="ne">StopIteration</span>
+
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">nextdata</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="p">)</span>
+		<span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+			<span class="c"># Should be over.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_seen_stop_iteration</span> <span class="o">=</span> <span class="bp">True</span>
+			<span class="k">raise</span>
+		<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="n">ProducerFault</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="p">(</span><span class="n">nextdata</span><span class="p">)</span>
+
+		<span class="c"># Distribute data to receivers.</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="p">:</span>
+			<span class="n">x</span><span class="o">.</span><span class="n">accept</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">transformer</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">protocol</span><span class="p">))</span>
+
+	<span class="k">def</span> <span class="nf">_service_receivers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">faults</span> <span class="o">=</span> <span class="p">{}</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="p">:</span>
+			<span class="c"># Process all the receivers.</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">x</span><span class="o">.</span><span class="n">transmit</span><span class="p">()</span>
+			<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+				<span class="n">faults</span><span class="p">[</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span> <span class="n">e</span>
+		<span class="k">if</span> <span class="n">faults</span><span class="p">:</span>
+			<span class="c"># The CopyManager is eager to continue the operation.</span>
+			<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">faults</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">receivers</span><span class="o">.</span><span class="n">discard</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+			<span class="k">raise</span> <span class="n">ReceiverFault</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">faults</span><span class="p">)</span>
+
+	<span class="c"># Run the COPY to completion.</span>
+	<span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="p">:</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">_service_producer</span><span class="p">()</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">_service_receivers</span><span class="p">()</span>
+			<span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+				<span class="c"># It&#39;s done.</span>
+				<span class="k">pass</span>
+
+	<span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span>
+
+	<span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">messages</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">total_messages</span>
+		<span class="nb">bytes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">total_bytes</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">_service_producer</span><span class="p">()</span>
+		<span class="c"># Record the progress in case a receiver faults.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_stats</span> <span class="o">=</span> <span class="p">(</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_stats</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">total_messages</span> <span class="o">-</span> <span class="n">messages</span><span class="p">),</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_stats</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">total_bytes</span> <span class="o">-</span> <span class="nb">bytes</span><span class="p">),</span>
+		<span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_service_receivers</span><span class="p">()</span>
+		<span class="c"># Return the progress.</span>
+		<span class="n">current_stats</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stats</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_stats</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">current_stats</span>
+</div>
+<div class="viewcode-block" id="transfer"><a class="viewcode-back" href="../../reference.html#postgresql.copyman.transfer">[docs]</a><span class="k">def</span> <span class="nf">transfer</span><span class="p">(</span><span class="n">producer</span><span class="p">,</span> <span class="o">*</span><span class="n">receivers</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Perform a COPY operation using the given statements::</span>
+
+<span class="sd">		&gt;&gt;&gt; import copyman</span>
+<span class="sd">		&gt;&gt;&gt; copyman.transfer(src.prepare(&quot;COPY table TO STDOUT&quot;), dst.prepare(&quot;COPY table FROM STDIN&quot;))</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">cm</span> <span class="o">=</span> <span class="n">CopyManager</span><span class="p">(</span>
+		<span class="n">StatementProducer</span><span class="p">(</span><span class="n">producer</span><span class="p">),</span>
+		<span class="o">*</span><span class="p">[</span><span class="n">x</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">Receiver</span><span class="p">)</span> <span class="k">else</span> <span class="n">StatementReceiver</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">receivers</span><span class="p">]</span>
+	<span class="p">)</span>
+	<span class="n">cm</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+	<span class="k">return</span> <span class="p">(</span><span class="n">cm</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">total_messages</span><span class="p">,</span> <span class="n">cm</span><span class="o">.</span><span class="n">producer</span><span class="o">.</span><span class="n">total_bytes</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" >postgresql</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

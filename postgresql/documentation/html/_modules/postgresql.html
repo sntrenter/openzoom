@@ -1,0 +1,195 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># py-postgresql root package</span>
+<span class="c"># http://python.projects.postgresql.org</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">py-postgresql is a Python package for using PostgreSQL. This includes low-level</span>
+<span class="sd">protocol tools, a driver(PG-API and DB-API), and cluster management tools.</span>
+
+<span class="sd">If it&#39;s not documented in the narratives, `postgresql.documentation.index`, then</span>
+<span class="sd">the stability of the APIs should *not* be trusted.</span>
+
+<span class="sd">See &lt;http://postgresql.org&gt; for more information about PostgreSQL.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+	<span class="s">&#39;__author__&#39;</span><span class="p">,</span>
+	<span class="s">&#39;__date__&#39;</span><span class="p">,</span>
+	<span class="s">&#39;__version__&#39;</span><span class="p">,</span>
+	<span class="s">&#39;__docformat__&#39;</span><span class="p">,</span>
+	<span class="s">&#39;version&#39;</span><span class="p">,</span>
+	<span class="s">&#39;version_info&#39;</span><span class="p">,</span>
+	<span class="s">&#39;open&#39;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c">#: The version string of py-postgresql.</span>
+<span class="n">version</span> <span class="o">=</span> <span class="s">&#39;&#39;</span> <span class="c"># overridden by subsequent import from .project.</span>
+
+<span class="c">#: The version triple of py-postgresql: (major, minor, patch).</span>
+<span class="n">version_info</span> <span class="o">=</span> <span class="p">()</span> <span class="c"># overridden by subsequent import from .project.</span>
+
+<span class="c"># Optional.</span>
+<span class="k">try</span><span class="p">:</span>
+	<span class="kn">from</span> <span class="nn">.project</span> <span class="kn">import</span> <span class="n">version_info</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> \
+		<span class="n">author</span> <span class="k">as</span> <span class="n">__author__</span><span class="p">,</span> <span class="n">date</span> <span class="k">as</span> <span class="n">__date__</span>
+	<span class="n">__version__</span> <span class="o">=</span> <span class="n">version</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+	<span class="k">pass</span>
+
+<span class="c"># Avoid importing these until requested.</span>
+<span class="n">_pg_iri</span> <span class="o">=</span> <span class="n">_pg_driver</span> <span class="o">=</span> <span class="n">_pg_param</span> <span class="o">=</span> <span class="bp">None</span>
+<div class="viewcode-block" id="open"><a class="viewcode-back" href="../reference.html#postgresql.open">[docs]</a><span class="k">def</span> <span class="nf">open</span><span class="p">(</span><span class="n">iri</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="n">prompt_title</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Create a `postgresql.api.Connection` to the server referenced by the given</span>
+<span class="sd">	`iri`::</span>
+
+<span class="sd">		&gt;&gt;&gt; import postgresql</span>
+<span class="sd">		# General Format:</span>
+<span class="sd">		&gt;&gt;&gt; db = postgresql.open(&#39;pq://user:password@host:port/database&#39;)</span>
+
+<span class="sd">		# Connect to &#39;postgres&#39; at localhost.</span>
+<span class="sd">		&gt;&gt;&gt; db = postgresql.open(&#39;localhost/postgres&#39;)</span>
+
+<span class="sd">	Connection keywords can also be used with `open`. See the narratives for</span>
+<span class="sd">	more information.</span>
+
+<span class="sd">	The `prompt_title` keyword is ignored. `open` will never prompt for</span>
+<span class="sd">	the password unless it is explicitly instructed to do so.</span>
+
+<span class="sd">	(Note: &quot;pq&quot; is the name of the protocol used to communicate with PostgreSQL)</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">global</span> <span class="n">_pg_iri</span><span class="p">,</span> <span class="n">_pg_driver</span><span class="p">,</span> <span class="n">_pg_param</span>
+	<span class="k">if</span> <span class="n">_pg_iri</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">iri</span> <span class="k">as</span> <span class="n">_pg_iri</span>
+		<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">driver</span> <span class="k">as</span> <span class="n">_pg_driver</span>
+		<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">clientparameters</span> <span class="k">as</span> <span class="n">_pg_param</span>
+
+	<span class="n">return_connector</span> <span class="o">=</span> <span class="bp">False</span>
+	<span class="k">if</span> <span class="n">iri</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="k">if</span> <span class="n">iri</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;&amp;&#39;</span><span class="p">):</span>
+			<span class="n">return_connector</span> <span class="o">=</span> <span class="bp">True</span>
+			<span class="n">iri</span> <span class="o">=</span> <span class="n">iri</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+		<span class="n">iri_params</span> <span class="o">=</span> <span class="n">_pg_iri</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">iri</span><span class="p">)</span>
+		<span class="n">iri_params</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;path&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+	<span class="k">else</span><span class="p">:</span>
+		<span class="n">iri_params</span> <span class="o">=</span> <span class="p">{}</span>
+
+	<span class="n">std_params</span> <span class="o">=</span> <span class="n">_pg_param</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">prompt_title</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span>
+	<span class="c"># If unix is specified, it&#39;s going to conflict with any standard</span>
+	<span class="c"># settings, so remove them right here.</span>
+	<span class="k">if</span> <span class="s">&#39;unix&#39;</span> <span class="ow">in</span> <span class="n">kw</span> <span class="ow">or</span> <span class="s">&#39;unix&#39;</span> <span class="ow">in</span> <span class="n">iri_params</span><span class="p">:</span>
+		<span class="n">std_params</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;host&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+		<span class="n">std_params</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;port&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+	<span class="n">params</span> <span class="o">=</span> <span class="n">_pg_param</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span>
+		<span class="nb">list</span><span class="p">(</span><span class="n">_pg_param</span><span class="o">.</span><span class="n">denormalize_parameters</span><span class="p">(</span><span class="n">std_params</span><span class="p">))</span> <span class="o">+</span> \
+		<span class="nb">list</span><span class="p">(</span><span class="n">_pg_param</span><span class="o">.</span><span class="n">denormalize_parameters</span><span class="p">(</span><span class="n">iri_params</span><span class="p">))</span> <span class="o">+</span> \
+		<span class="nb">list</span><span class="p">(</span><span class="n">_pg_param</span><span class="o">.</span><span class="n">denormalize_parameters</span><span class="p">(</span><span class="n">kw</span><span class="p">))</span>
+	<span class="p">)</span>
+	<span class="n">_pg_param</span><span class="o">.</span><span class="n">resolve_password</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+
+	<span class="n">C</span> <span class="o">=</span> <span class="n">_pg_driver</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="o">**</span><span class="n">params</span><span class="p">)</span>
+	<span class="k">if</span> <span class="n">return_connector</span> <span class="ow">is</span> <span class="bp">True</span><span class="p">:</span>
+		<span class="k">return</span> <span class="n">C</span>
+	<span class="k">else</span><span class="p">:</span>
+		<span class="n">c</span> <span class="o">=</span> <span class="n">C</span><span class="p">()</span>
+		<span class="n">c</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+		<span class="k">return</span> <span class="n">c</span>
+</div>
+<span class="n">__docformat__</span> <span class="o">=</span> <span class="s">&#39;reStructuredText&#39;</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

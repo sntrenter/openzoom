@@ -1,0 +1,7 @@
+http://zoom.missouristate.edu/meets/;http://ds9.missouristate.edu/meets/;server1 #check to see if meeting is over
+http://zoom1.missouristate.edu/meets/;http://romulans.missouristate.edu/meets/;server2 #check to see if meeting is over(backup)
+raton.missouristate.edu;server3 #database server
+ysalamir.missouristate.edu;server4 #database server(backup)
+60;timeout #how long the shutdown meeting will take
+5432;postgresql port #
+80;web service port #

@@ -1,0 +1,360 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql.string &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../../index.html" />
+    <link rel="up" title="postgresql" href="../postgresql.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" accesskey="U">postgresql</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql.string</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># .string</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">String split and join operations for dealing with literals and identifiers.</span>
+
+<span class="sd">Notably, the functions in this module are intended to be used for simple</span>
+<span class="sd">use-cases. It attempts to stay away from &quot;real&quot; parsing and simply provides</span>
+<span class="sd">functions for common needs, like the ability to identify unquoted portions of a</span>
+<span class="sd">query string so that logic or transformations can be applied to only unquoted</span>
+<span class="sd">portions. Scanning for statement terminators, or safely interpolating</span>
+<span class="sd">identifiers.</span>
+
+<span class="sd">All functions deal with strict quoting rules.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">re</span>
+
+<div class="viewcode-block" id="escape_literal"><a class="viewcode-back" href="../../reference.html#postgresql.string.escape_literal">[docs]</a><span class="k">def</span> <span class="nf">escape_literal</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+	<span class="s">&quot;Replace every instance of &#39; with &#39;&#39;&quot;</span>
+	<span class="k">return</span> <span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;&#39;&quot;</span><span class="p">,</span> <span class="s">&quot;&#39;&#39;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="quote_literal"><a class="viewcode-back" href="../../reference.html#postgresql.string.quote_literal">[docs]</a><span class="k">def</span> <span class="nf">quote_literal</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+	<span class="s">&quot;Escape the literal and wrap it in [single] quotations&quot;</span>
+	<span class="k">return</span> <span class="s">&quot;&#39;&quot;</span> <span class="o">+</span> <span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;&#39;&quot;</span><span class="p">,</span> <span class="s">&quot;&#39;&#39;&quot;</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;&#39;&quot;</span>
+</div>
+<div class="viewcode-block" id="escape_ident"><a class="viewcode-back" href="../../reference.html#postgresql.string.escape_ident">[docs]</a><span class="k">def</span> <span class="nf">escape_ident</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+	<span class="s">&#39;Replace every instance of &quot; with &quot;&quot;&#39;</span>
+	<span class="k">return</span> <span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">,</span> <span class="s">&#39;&quot;&quot;&#39;</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">needs_quoting</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+	<span class="k">return</span> <span class="ow">not</span> <span class="p">(</span><span class="n">text</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">text</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">isdecimal</span><span class="p">()</span> <span class="ow">and</span> <span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;_&#39;</span><span class="p">,</span> <span class="s">&#39;a&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">isalnum</span><span class="p">())</span>
+
+<div class="viewcode-block" id="quote_ident"><a class="viewcode-back" href="../../reference.html#postgresql.string.quote_ident">[docs]</a><span class="k">def</span> <span class="nf">quote_ident</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+	<span class="s">&quot;Replace every instance of &#39;&quot;&#39; with &#39;&quot;&quot;&#39; *and* place &#39;&quot;&#39; on each end&quot;</span>
+	<span class="k">return</span> <span class="s">&#39;&quot;&#39;</span> <span class="o">+</span> <span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">,</span> <span class="s">&#39;&quot;&quot;&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39;&quot;&#39;</span>
+</div>
+<div class="viewcode-block" id="quote_ident_if_needed"><a class="viewcode-back" href="../../reference.html#postgresql.string.quote_ident_if_needed">[docs]</a><span class="k">def</span> <span class="nf">quote_ident_if_needed</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	If needed, replace every instance of &#39;&quot;&#39; with &#39;&quot;&quot;&#39; *and* place &#39;&quot;&#39; on each end.</span>
+<span class="sd">	Otherwise, just return the text.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">return</span> <span class="n">quote_ident</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="k">if</span> <span class="n">needs_quoting</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="k">else</span> <span class="n">text</span>
+</div>
+<span class="n">quote_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&quot;&quot;&quot;(?xu)</span>
+<span class="s">	E&#39;(?:&#39;&#39;|\\.|[^&#39;])*(?:&#39;|$)          (?# Backslash escapes E&#39;str&#39;)</span>
+<span class="s">|	&#39;(?:&#39;&#39;|[^&#39;])*(?:&#39;|$)               (?# Regular literals &#39;str&#39;)</span>
+<span class="s">|	&quot;(?:&quot;&quot;|[^&quot;])*(?:&quot;|$)               (?# Identifiers &quot;str&quot;)</span>
+<span class="s">|	(\$(?:[^0-9$]\w*)?\$).*?(?:\1|$)   (?# Dollar quotes $$str$$)</span>
+<span class="s">&quot;&quot;&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="split"><a class="viewcode-back" href="../../reference.html#postgresql.string.split">[docs]</a><span class="k">def</span> <span class="nf">split</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	split the string up by into non-quoted and quoted portions. Zero and even</span>
+<span class="sd">	numbered indexes are unquoted portions, while odd indexes are quoted</span>
+<span class="sd">	portions. </span>
+
+<span class="sd">	Unquoted portions are regular strings, whereas quoted portions are</span>
+<span class="sd">	pair-tuples specifying the quotation mechanism and the content thereof.</span>
+
+<span class="sd">	&gt;&gt;&gt; list(split(&quot;select $$foobar$$&quot;))</span>
+<span class="sd">	[&#39;select &#39;, (&#39;$$&#39;, &#39;foobar&#39;), &#39;&#39;]</span>
+
+<span class="sd">	If the split ends on a quoted section, it means the string&#39;s quote was not</span>
+<span class="sd">	terminated. Subsequently, there will be an even number of objects in the</span>
+<span class="sd">	list.</span>
+
+<span class="sd">	Quotation errors are detected, but never raised. Rather it&#39;s up to the user</span>
+<span class="sd">	to identify the best course of action for the given split.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">lastend</span> <span class="o">=</span> <span class="mi">0</span>
+	<span class="n">re</span> <span class="o">=</span> <span class="n">quote_re</span>
+	<span class="n">scan</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">scanner</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+	<span class="n">match</span> <span class="o">=</span> <span class="n">scan</span><span class="o">.</span><span class="n">search</span><span class="p">()</span>
+	<span class="k">while</span> <span class="n">match</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="c"># text preceding the quotation</span>
+		<span class="k">yield</span> <span class="n">text</span><span class="p">[</span><span class="n">lastend</span><span class="p">:</span><span class="n">match</span><span class="o">.</span><span class="n">start</span><span class="p">()]</span>
+		<span class="c"># the dollar quote, if any</span>
+		<span class="n">dq</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">groups</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+		<span class="k">if</span> <span class="n">dq</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">endoff</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">dq</span><span class="p">)</span>
+			<span class="n">quote</span> <span class="o">=</span> <span class="n">dq</span>
+			<span class="n">end</span> <span class="o">=</span> <span class="n">quote</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">endoff</span> <span class="o">=</span> <span class="mi">1</span>
+			<span class="n">q</span> <span class="o">=</span> <span class="n">text</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">start</span><span class="p">()]</span>
+			<span class="k">if</span> <span class="n">q</span> <span class="o">==</span> <span class="s">&#39;E&#39;</span><span class="p">:</span>
+				<span class="n">quote</span> <span class="o">=</span> <span class="s">&quot;E&#39;&quot;</span>
+				<span class="n">end</span> <span class="o">=</span> <span class="s">&quot;&#39;&quot;</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="n">end</span> <span class="o">=</span> <span class="n">quote</span> <span class="o">=</span> <span class="n">q</span>
+
+		<span class="c"># If the end is not the expected quote, it consumed</span>
+		<span class="c"># the end. Be sure to check that the match&#39;s end - end offset</span>
+		<span class="c"># is *not* the start, ie an empty quotation at the end of the string.</span>
+		<span class="k">if</span> <span class="n">text</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()</span><span class="o">-</span><span class="n">endoff</span><span class="p">:</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()]</span> <span class="o">!=</span> <span class="n">end</span> \
+		<span class="ow">or</span> <span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()</span> <span class="o">-</span> <span class="n">endoff</span> <span class="o">==</span> <span class="n">match</span><span class="o">.</span><span class="n">start</span><span class="p">():</span>
+			<span class="k">yield</span> <span class="p">(</span><span class="n">quote</span><span class="p">,</span> <span class="n">text</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">start</span><span class="p">()</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">quote</span><span class="p">):])</span>
+			<span class="k">break</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">yield</span> <span class="p">(</span><span class="n">quote</span><span class="p">,</span> <span class="n">text</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">start</span><span class="p">()</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">quote</span><span class="p">):</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()</span><span class="o">-</span><span class="n">endoff</span><span class="p">])</span>
+
+		<span class="n">lastend</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">()</span>
+		<span class="n">match</span> <span class="o">=</span> <span class="n">scan</span><span class="o">.</span><span class="n">search</span><span class="p">()</span>
+	<span class="k">else</span><span class="p">:</span>
+		<span class="c"># balanced quotes, yield the rest</span>
+		<span class="k">yield</span> <span class="n">text</span><span class="p">[</span><span class="n">lastend</span><span class="p">:]</span>
+</div>
+<div class="viewcode-block" id="unsplit"><a class="viewcode-back" href="../../reference.html#postgresql.string.unsplit">[docs]</a><span class="k">def</span> <span class="nf">unsplit</span><span class="p">(</span><span class="n">splitted_iter</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	catenate a split string. This is needed to handle the special</span>
+<span class="sd">	cases created by pg.string.split(). (Run-away quotations, primarily)</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">s</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+	<span class="n">quoted</span> <span class="o">=</span> <span class="bp">False</span>
+	<span class="n">i</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">splitted_iter</span><span class="p">)</span>
+	<span class="n">endq</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+	<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">i</span><span class="p">:</span>
+		<span class="n">s</span> <span class="o">+=</span> <span class="n">endq</span> <span class="o">+</span> <span class="n">x</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">q</span><span class="p">,</span> <span class="n">qtext</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+			<span class="n">s</span> <span class="o">+=</span> <span class="n">q</span> <span class="o">+</span> <span class="n">qtext</span>
+			<span class="k">if</span> <span class="n">q</span> <span class="o">==</span> <span class="s">&quot;E&#39;&quot;</span><span class="p">:</span>
+				<span class="n">endq</span> <span class="o">=</span> <span class="s">&quot;&#39;&quot;</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="n">endq</span> <span class="o">=</span> <span class="n">q</span>
+		<span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+			<span class="k">break</span>
+	<span class="k">return</span> <span class="n">s</span>
+</div>
+<div class="viewcode-block" id="split_using"><a class="viewcode-back" href="../../reference.html#postgresql.string.split_using">[docs]</a><span class="k">def</span> <span class="nf">split_using</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">quote</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s">&#39;.&#39;</span><span class="p">,</span> <span class="n">maxsplit</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	split the string on the seperator ignoring the separator in quoted areas.</span>
+
+<span class="sd">	This is only useful for simple quoted strings. Dollar quotes, and backslash</span>
+<span class="sd">	escapes are not supported.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">escape</span> <span class="o">=</span> <span class="n">quote</span> <span class="o">*</span> <span class="mi">2</span>
+	<span class="n">esclen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">escape</span><span class="p">)</span>
+	<span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+	<span class="n">tl</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+	<span class="n">end</span> <span class="o">=</span> <span class="n">tl</span>
+	<span class="c"># Fast path: No quotes? Do a simple split.</span>
+	<span class="k">if</span> <span class="n">quote</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">text</span><span class="p">:</span>
+		<span class="k">return</span> <span class="n">text</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">sep</span><span class="p">,</span> <span class="n">maxsplit</span><span class="p">)</span>
+	<span class="n">l</span> <span class="o">=</span> <span class="p">[]</span>
+
+	<span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">l</span><span class="p">)</span> <span class="o">!=</span> <span class="n">maxsplit</span><span class="p">:</span>
+		<span class="c"># Look for the separator first</span>
+		<span class="n">nextsep</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">sep</span><span class="p">,</span> <span class="n">offset</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">nextsep</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+			<span class="c"># it&#39;s over. there are no more seps</span>
+			<span class="k">break</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="c"># There&#39;s a sep ahead, but is there a quoted section before it?</span>
+			<span class="n">nextquote</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">quote</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">nextsep</span><span class="p">)</span>
+			<span class="k">while</span> <span class="n">nextquote</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+				<span class="c"># Yep, there&#39;s a quote before the sep;</span>
+				<span class="c"># need to eat the escaped portion.</span>
+				<span class="n">nextquote</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">quote</span><span class="p">,</span> <span class="n">nextquote</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,)</span>
+				<span class="k">while</span> <span class="n">nextquote</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+					<span class="k">if</span> <span class="n">text</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">escape</span><span class="p">,</span> <span class="n">nextquote</span><span class="p">,</span> <span class="n">nextquote</span><span class="o">+</span><span class="n">esclen</span><span class="p">)</span> <span class="o">!=</span> <span class="n">nextquote</span><span class="p">:</span>
+						<span class="c"># Not an escape, so it&#39;s the end.</span>
+						<span class="k">break</span>
+					<span class="c"># Look for another quote past the escape quote.</span>
+					<span class="n">nextquote</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">quote</span><span class="p">,</span> <span class="n">nextquote</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="c"># the sep was located in the escape, and</span>
+					<span class="c"># the escape consumed the rest of the string.</span>
+					<span class="n">nextsep</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+					<span class="k">break</span>
+
+				<span class="n">nextsep</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">sep</span><span class="p">,</span> <span class="n">nextquote</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+				<span class="k">if</span> <span class="n">nextsep</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+					<span class="c"># it&#39;s over. there are no more seps</span>
+					<span class="c"># [likely they were consumed by the escape]</span>
+					<span class="k">break</span>
+				<span class="n">nextquote</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">quote</span><span class="p">,</span> <span class="n">nextquote</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">nextsep</span><span class="p">)</span>
+			<span class="k">if</span> <span class="n">nextsep</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+				<span class="k">break</span>
+
+			<span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">text</span><span class="p">[</span><span class="n">offset</span><span class="p">:</span><span class="n">nextsep</span><span class="p">])</span>
+			<span class="n">offset</span> <span class="o">=</span> <span class="n">nextsep</span> <span class="o">+</span> <span class="mi">1</span>
+	<span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">text</span><span class="p">[</span><span class="n">offset</span><span class="p">:])</span>
+	<span class="k">return</span> <span class="n">l</span>
+</div>
+<div class="viewcode-block" id="split_ident"><a class="viewcode-back" href="../../reference.html#postgresql.string.split_ident">[docs]</a><span class="k">def</span> <span class="nf">split_ident</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s">&#39;,&#39;</span><span class="p">,</span> <span class="n">quote</span> <span class="o">=</span> <span class="s">&#39;&quot;&#39;</span><span class="p">,</span> <span class="n">maxsplit</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Split a series of identifiers using the specified separator.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">nr</span> <span class="o">=</span> <span class="p">[]</span>
+	<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">split_using</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">quote</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="n">sep</span><span class="p">,</span> <span class="n">maxsplit</span> <span class="o">=</span> <span class="n">maxsplit</span><span class="p">):</span>
+		<span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+		<span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">):</span>
+			<span class="k">if</span> <span class="ow">not</span> <span class="n">x</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">):</span>
+				<span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+					<span class="s">&quot;unterminated identifier quotation&quot;</span><span class="p">,</span> <span class="n">x</span>
+				<span class="p">)</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="n">nr</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;&quot;&quot;&#39;</span><span class="p">,</span> <span class="s">&#39;&quot;&#39;</span><span class="p">))</span>
+		<span class="k">elif</span> <span class="n">needs_quoting</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+			<span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+				<span class="s">&quot;non-ident characters in unquoted identifier&quot;</span><span class="p">,</span> <span class="n">x</span>
+			<span class="p">)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="c"># postgres implies a lower, so to stay consistent</span>
+			<span class="c"># with it on qname joins, lower the unquoted identifier now.</span>
+			<span class="n">nr</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+	<span class="k">return</span> <span class="n">nr</span>
+</div>
+<div class="viewcode-block" id="split_qname"><a class="viewcode-back" href="../../reference.html#postgresql.string.split_qname">[docs]</a><span class="k">def</span> <span class="nf">split_qname</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">maxsplit</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Call to .split_ident() with a &#39;.&#39; sep parameter.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">return</span> <span class="n">split_ident</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">maxsplit</span> <span class="o">=</span> <span class="n">maxsplit</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s">&#39;.&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="qname"><a class="viewcode-back" href="../../reference.html#postgresql.string.qname">[docs]</a><span class="k">def</span> <span class="nf">qname</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+	<span class="s">&quot;Quote the identifiers and join them using &#39;.&#39;&quot;</span>
+	<span class="k">return</span> <span class="s">&#39;.&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">quote_ident</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">args</span><span class="p">])</span>
+</div>
+<span class="k">def</span> <span class="nf">qname_if_needed</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+	<span class="k">return</span> <span class="s">&#39;.&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">quote_ident_if_needed</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">args</span><span class="p">])</span>
+
+<div class="viewcode-block" id="split_sql"><a class="viewcode-back" href="../../reference.html#postgresql.string.split_sql">[docs]</a><span class="k">def</span> <span class="nf">split_sql</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s">&#39;;&#39;</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Given SQL, safely split using the given separator.</span>
+<span class="sd">	Notably, this yields fully split text. This should be used instead of</span>
+<span class="sd">	split_sql_str() when quoted sections need be still be isolated.</span>
+
+<span class="sd">	&gt;&gt;&gt; list(split_sql(&#39;select $$1$$ AS &quot;foo;&quot;; select 2;&#39;))</span>
+<span class="sd">	[[&#39;select &#39;, (&#39;$$&#39;, &#39;1&#39;), &#39; AS &#39;, (&#39;&quot;&#39;, &#39;foo;&#39;), &#39;&#39;], (&#39; select 2&#39;,), [&#39;&#39;]]</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">i</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">split</span><span class="p">(</span><span class="n">sql</span><span class="p">))</span>
+	<span class="n">cur</span> <span class="o">=</span> <span class="p">[]</span>
+	<span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">i</span><span class="p">:</span>
+		<span class="n">sections</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">sep</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sections</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+			<span class="n">cur</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">cur</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sections</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+			<span class="k">yield</span> <span class="n">cur</span>
+			<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">sections</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+				<span class="k">yield</span> <span class="p">(</span><span class="n">x</span><span class="p">,)</span>
+			<span class="n">cur</span> <span class="o">=</span> <span class="p">[</span><span class="n">sections</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">cur</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">next</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+		<span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+			<span class="k">break</span>
+	<span class="k">if</span> <span class="n">cur</span><span class="p">:</span>
+		<span class="k">yield</span> <span class="n">cur</span>
+</div>
+<div class="viewcode-block" id="split_sql_str"><a class="viewcode-back" href="../../reference.html#postgresql.string.split_sql_str">[docs]</a><span class="k">def</span> <span class="nf">split_sql_str</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s">&#39;;&#39;</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Identical to split_sql but yields unsplit text.</span>
+
+<span class="sd">	&gt;&gt;&gt; list(split_sql_str(&#39;select $$1$$ AS &quot;foo;&quot;; select 2;&#39;))</span>
+<span class="sd">	[&#39;select $$1$$ AS &quot;foo;&quot;&#39;, &#39; select 2&#39;, &#39;&#39;]</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">split_sql</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="n">sep</span><span class="p">):</span>
+		<span class="k">yield</span> <span class="n">unsplit</span><span class="p">(</span><span class="n">x</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" >postgresql</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

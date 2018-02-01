@@ -1,0 +1,786 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql.exceptions &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../../index.html" />
+    <link rel="up" title="postgresql" href="../postgresql.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" accesskey="U">postgresql</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql.exceptions</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># .exceptions - Exception hierarchy for PostgreSQL database ERRORs.</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">PostgreSQL exceptions and warnings with associated state codes.</span>
+
+<span class="sd">The primary entry points of this module is the `ErrorLookup` function and the</span>
+<span class="sd">`WarningLookup` function. Given an SQL state code, they give back the most</span>
+<span class="sd">appropriate Error or Warning subclass.</span>
+
+<span class="sd">For more information on error codes see:</span>
+<span class="sd"> http://www.postgresql.org/docs/current/static/errcodes-appendix.html</span>
+
+<span class="sd">This module is executable via -m: python -m postgresql.exceptions.</span>
+<span class="sd">It provides a convenient way to look up the exception object mapped to by the</span>
+<span class="sd">given error code::</span>
+
+<span class="sd">	$ python -m postgresql.exceptions XX000</span>
+<span class="sd">	postgresql.exceptions.InternalError [XX000]</span>
+
+<span class="sd">If the exact error code is not found, it will try to find the error class&#39;s</span>
+<span class="sd">exception(The first two characters of the error code make up the class</span>
+<span class="sd">identity)::</span>
+
+<span class="sd">	$ python -m postgresql.exceptions XX400</span>
+<span class="sd">	postgresql.exceptions.InternalError [XX000]</span>
+
+<span class="sd">If that fails, it will return `postgresql.exceptions.Error`</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">operator</span> <span class="kn">import</span> <span class="n">attrgetter</span>
+<span class="kn">from</span> <span class="nn">.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">sys</span> <span class="k">as</span> <span class="n">pg_sys</span>
+
+<span class="n">PythonException</span> <span class="o">=</span> <span class="ne">Exception</span>
+<div class="viewcode-block" id="Exception"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.Exception">[docs]</a><span class="k">class</span> <span class="nc">Exception</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+	<span class="s">&#39;Base PostgreSQL exception class&#39;</span>
+	<span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="LoadError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.LoadError">[docs]</a><span class="k">class</span> <span class="nc">LoadError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+	<span class="s">&#39;Failed to load a library&#39;</span>
+</div>
+<div class="viewcode-block" id="Disconnection"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.Disconnection">[docs]</a><span class="k">class</span> <span class="nc">Disconnection</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+	<span class="s">&#39;Exception identifying errors that result in disconnection&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">Warning</span><span class="p">(</span><span class="n">Message</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01000&#39;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="nb">property</span><span class="p">(</span><span class="n">attrgetter</span><span class="p">(</span><span class="s">&#39;__class__.__name__&#39;</span><span class="p">))</span>
+
+<span class="k">class</span> <span class="nc">DriverWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01-00&#39;</span>
+	<span class="n">source</span> <span class="o">=</span> <span class="s">&#39;CLIENT&#39;</span>
+<div class="viewcode-block" id="IgnoredClientParameterWarning"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.IgnoredClientParameterWarning">[docs]</a><span class="k">class</span> <span class="nc">IgnoredClientParameterWarning</span><span class="p">(</span><span class="n">DriverWarning</span><span class="p">):</span>
+	<span class="s">&#39;Warn the user of a valid, but ignored parameter.&#39;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01-CP&#39;</span></div>
+<div class="viewcode-block" id="TypeConversionWarning"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.TypeConversionWarning">[docs]</a><span class="k">class</span> <span class="nc">TypeConversionWarning</span><span class="p">(</span><span class="n">DriverWarning</span><span class="p">):</span>
+	<span class="s">&#39;Report a potential issue with a conversion.&#39;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01-TP&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">DeprecationWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01P01&#39;</span>
+<span class="k">class</span> <span class="nc">DynamicResultSetsReturnedWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0100C&#39;</span>
+<span class="k">class</span> <span class="nc">ImplicitZeroBitPaddingWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01008&#39;</span>
+<span class="k">class</span> <span class="nc">NullValueEliminatedInSetFunctionWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01003&#39;</span>
+<span class="k">class</span> <span class="nc">PrivilegeNotGrantedWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01007&#39;</span>
+<span class="k">class</span> <span class="nc">PrivilegeNotRevokedWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01006&#39;</span>
+<span class="k">class</span> <span class="nc">StringDataRightTruncationWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;01004&#39;</span>
+
+<span class="k">class</span> <span class="nc">NoDataWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;02000&#39;</span>
+<span class="k">class</span> <span class="nc">NoMoreSetsReturned</span><span class="p">(</span><span class="n">NoDataWarning</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;02001&#39;</span>
+
+<div class="viewcode-block" id="Error"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.Error">[docs]</a><span class="k">class</span> <span class="nc">Error</span><span class="p">(</span><span class="n">Message</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+	<span class="s">&#39;A PostgreSQL Error&#39;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;ERROR&#39;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+
+	<span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="s">&#39;Call .sys.errformat(self)&#39;</span>
+		<span class="k">return</span> <span class="n">pg_sys</span><span class="o">.</span><span class="n">errformat</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">fatal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;severity&#39;</span><span class="p">)</span>
+		<span class="k">return</span> <span class="bp">None</span> <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">f</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;PANIC&#39;</span><span class="p">,</span> <span class="s">&#39;FATAL&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DriverError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.DriverError">[docs]</a><span class="k">class</span> <span class="nc">DriverError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Errors originating in the driver&#39;s implementation.&quot;</span>
+	<span class="n">source</span> <span class="o">=</span> <span class="s">&#39;CLIENT&#39;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--000&#39;</span></div>
+<div class="viewcode-block" id="AuthenticationMethodError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.AuthenticationMethodError">[docs]</a><span class="k">class</span> <span class="nc">AuthenticationMethodError</span><span class="p">(</span><span class="n">DriverError</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Server requested an authentication method that is not supported by the</span>
+<span class="sd">	driver.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--AUT&#39;</span></div>
+<div class="viewcode-block" id="InsecurityError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.InsecurityError">[docs]</a><span class="k">class</span> <span class="nc">InsecurityError</span><span class="p">(</span><span class="n">DriverError</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Error signifying a secure channel to a server cannot be established.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--SEC&#39;</span></div>
+<div class="viewcode-block" id="ConnectTimeoutError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ConnectTimeoutError">[docs]</a><span class="k">class</span> <span class="nc">ConnectTimeoutError</span><span class="p">(</span><span class="n">DriverError</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="s">&#39;Client was unable to esablish a connection in the given time&#39;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--TOE&#39;</span>
+</div>
+<div class="viewcode-block" id="TypeIOError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.TypeIOError">[docs]</a><span class="k">class</span> <span class="nc">TypeIOError</span><span class="p">(</span><span class="n">DriverError</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Driver failed to pack or unpack a tuple.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--TIO&#39;</span></div>
+<span class="k">class</span> <span class="nc">ParameterError</span><span class="p">(</span><span class="n">TypeIOError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--PIO&#39;</span>
+<span class="k">class</span> <span class="nc">ColumnError</span><span class="p">(</span><span class="n">TypeIOError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--CIO&#39;</span>
+<span class="k">class</span> <span class="nc">CompositeError</span><span class="p">(</span><span class="n">TypeIOError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--cIO&#39;</span>
+
+<div class="viewcode-block" id="OperationError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.OperationError">[docs]</a><span class="k">class</span> <span class="nc">OperationError</span><span class="p">(</span><span class="n">DriverError</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	An invalid operation on an interface element.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;--OPE&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">TransactionError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="k">pass</span>
+
+<span class="k">class</span> <span class="nc">SQLNotYetCompleteError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;03000&#39;</span>
+
+<span class="k">class</span> <span class="nc">ConnectionError</span><span class="p">(</span><span class="n">Error</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;08000&#39;</span>
+<div class="viewcode-block" id="ConnectionDoesNotExistError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ConnectionDoesNotExistError">[docs]</a><span class="k">class</span> <span class="nc">ConnectionDoesNotExistError</span><span class="p">(</span><span class="n">ConnectionError</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	The connection is closed or was never connected.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;08003&#39;</span></div>
+<div class="viewcode-block" id="ConnectionFailureError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ConnectionFailureError">[docs]</a><span class="k">class</span> <span class="nc">ConnectionFailureError</span><span class="p">(</span><span class="n">ConnectionError</span><span class="p">):</span>
+	<span class="s">&#39;Raised when a connection is dropped&#39;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;08006&#39;</span>
+</div>
+<div class="viewcode-block" id="ClientCannotConnectError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ClientCannotConnectError">[docs]</a><span class="k">class</span> <span class="nc">ClientCannotConnectError</span><span class="p">(</span><span class="n">ConnectionError</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Client was unable to establish a connection to the server.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;08001&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">ConnectionRejectionError</span><span class="p">(</span><span class="n">ConnectionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;08004&#39;</span>
+<span class="k">class</span> <span class="nc">TransactionResolutionUnknownError</span><span class="p">(</span><span class="n">ConnectionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;08007&#39;</span>
+<span class="k">class</span> <span class="nc">ProtocolError</span><span class="p">(</span><span class="n">ConnectionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;08P01&#39;</span>
+
+<span class="k">class</span> <span class="nc">TriggeredActionError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;09000&#39;</span>
+
+<div class="viewcode-block" id="FeatureError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.FeatureError">[docs]</a><span class="k">class</span> <span class="nc">FeatureError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Unsupported feature&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0A000&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">TransactionInitiationError</span><span class="p">(</span><span class="n">TransactionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0B000&#39;</span>
+
+<span class="k">class</span> <span class="nc">LocatorError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0F000&#39;</span>
+<span class="k">class</span> <span class="nc">LocatorSpecificationError</span><span class="p">(</span><span class="n">LocatorError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0F001&#39;</span>
+
+<span class="k">class</span> <span class="nc">GrantorError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0L000&#39;</span>
+<span class="k">class</span> <span class="nc">GrantorOperationError</span><span class="p">(</span><span class="n">GrantorError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0LP01&#39;</span>
+
+<span class="k">class</span> <span class="nc">RoleSpecificationError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;0P000&#39;</span>
+
+<span class="k">class</span> <span class="nc">CaseNotFoundError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;20000&#39;</span>
+
+<div class="viewcode-block" id="CardinalityError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.CardinalityError">[docs]</a><span class="k">class</span> <span class="nc">CardinalityError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Wrong number of rows returned&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;21000&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">TriggeredDataChangeViolation</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;27000&#39;</span>
+
+<span class="k">class</span> <span class="nc">AuthenticationSpecificationError</span><span class="p">(</span><span class="n">Error</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;28000&#39;</span>
+
+<div class="viewcode-block" id="DPDSEError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.DPDSEError">[docs]</a><span class="k">class</span> <span class="nc">DPDSEError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Dependent Privilege Descriptors Still Exist&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2B000&#39;</span></div>
+<span class="k">class</span> <span class="nc">DPDSEObjectError</span><span class="p">(</span><span class="n">DPDSEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2BP01&#39;</span>
+
+<div class="viewcode-block" id="SREError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.SREError">[docs]</a><span class="k">class</span> <span class="nc">SREError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;SQL Routine Exception&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2F000&#39;</span></div>
+<span class="k">class</span> <span class="nc">FunctionExecutedNoReturnStatementError</span><span class="p">(</span><span class="n">SREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2F005&#39;</span>
+<span class="k">class</span> <span class="nc">DataModificationProhibitedError</span><span class="p">(</span><span class="n">SREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2F002&#39;</span>
+<span class="k">class</span> <span class="nc">StatementProhibitedError</span><span class="p">(</span><span class="n">SREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2F003&#39;</span>
+<span class="k">class</span> <span class="nc">ReadingDataProhibitedError</span><span class="p">(</span><span class="n">SREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2F004&#39;</span>
+
+<div class="viewcode-block" id="EREError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.EREError">[docs]</a><span class="k">class</span> <span class="nc">EREError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;External Routine Exception&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;38000&#39;</span></div>
+<span class="k">class</span> <span class="nc">ContainingSQLNotPermittedError</span><span class="p">(</span><span class="n">EREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;38001&#39;</span>
+<span class="k">class</span> <span class="nc">ModifyingSQLDataNotPermittedError</span><span class="p">(</span><span class="n">EREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;38002&#39;</span>
+<span class="k">class</span> <span class="nc">ProhibitedSQLStatementError</span><span class="p">(</span><span class="n">EREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;38003&#39;</span>
+<span class="k">class</span> <span class="nc">ReadingSQLDataNotPermittedError</span><span class="p">(</span><span class="n">EREError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;38004&#39;</span>
+
+<div class="viewcode-block" id="ERIEError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ERIEError">[docs]</a><span class="k">class</span> <span class="nc">ERIEError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;External Routine Invocation Exception&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;39000&#39;</span></div>
+<span class="k">class</span> <span class="nc">InvalidSQLState</span><span class="p">(</span><span class="n">ERIEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;39001&#39;</span>
+<span class="k">class</span> <span class="nc">NullValueNotAllowed</span><span class="p">(</span><span class="n">ERIEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;39004&#39;</span>
+<span class="k">class</span> <span class="nc">TriggerProtocolError</span><span class="p">(</span><span class="n">ERIEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;39P01&#39;</span>
+<span class="k">class</span> <span class="nc">SRFProtocolError</span><span class="p">(</span><span class="n">ERIEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;39P02&#39;</span>
+
+<div class="viewcode-block" id="TRError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.TRError">[docs]</a><span class="k">class</span> <span class="nc">TRError</span><span class="p">(</span><span class="n">TransactionError</span><span class="p">):</span>
+	<span class="s">&quot;Transaction Rollback&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;40000&#39;</span></div>
+<span class="k">class</span> <span class="nc">DeadlockError</span><span class="p">(</span><span class="n">TRError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;40P01&#39;</span>
+<span class="k">class</span> <span class="nc">IntegrityConstraintViolationError</span><span class="p">(</span><span class="n">TRError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;40002&#39;</span>
+<span class="k">class</span> <span class="nc">SerializationError</span><span class="p">(</span><span class="n">TRError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;40001&#39;</span>
+<span class="k">class</span> <span class="nc">StatementCompletionUnknownError</span><span class="p">(</span><span class="n">TRError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;40003&#39;</span>
+
+
+<div class="viewcode-block" id="ITSError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ITSError">[docs]</a><span class="k">class</span> <span class="nc">ITSError</span><span class="p">(</span><span class="n">TransactionError</span><span class="p">):</span>
+	<span class="s">&quot;Invalid Transaction State&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25000&#39;</span></div>
+<span class="k">class</span> <span class="nc">ActiveTransactionError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25001&#39;</span>
+<span class="k">class</span> <span class="nc">BranchAlreadyActiveError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25002&#39;</span>
+<span class="k">class</span> <span class="nc">BadAccessModeForBranchError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25003&#39;</span>
+<span class="k">class</span> <span class="nc">BadIsolationForBranchError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25004&#39;</span>
+<span class="k">class</span> <span class="nc">NoActiveTransactionForBranchError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25005&#39;</span>
+<div class="viewcode-block" id="ReadOnlyTransactionError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ReadOnlyTransactionError">[docs]</a><span class="k">class</span> <span class="nc">ReadOnlyTransactionError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="s">&quot;Occurs when an alteration occurs in a read-only transaction.&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25006&#39;</span></div>
+<div class="viewcode-block" id="SchemaAndDataStatementsError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.SchemaAndDataStatementsError">[docs]</a><span class="k">class</span> <span class="nc">SchemaAndDataStatementsError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="s">&quot;Mixed schema and data statements not allowed.&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25007&#39;</span></div>
+<div class="viewcode-block" id="InconsistentCursorIsolationError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.InconsistentCursorIsolationError">[docs]</a><span class="k">class</span> <span class="nc">InconsistentCursorIsolationError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="s">&quot;The held cursor requires the same isolation.&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25008&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">NoActiveTransactionError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25P01&#39;</span>
+<div class="viewcode-block" id="InFailedTransactionError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.InFailedTransactionError">[docs]</a><span class="k">class</span> <span class="nc">InFailedTransactionError</span><span class="p">(</span><span class="n">ITSError</span><span class="p">):</span>
+	<span class="s">&quot;Occurs when an action occurs in a failed transaction.&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;25P02&#39;</span>
+
+</div>
+<div class="viewcode-block" id="SavepointError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.SavepointError">[docs]</a><span class="k">class</span> <span class="nc">SavepointError</span><span class="p">(</span><span class="n">TransactionError</span><span class="p">):</span>
+	<span class="s">&quot;Classification error designating errors that relate to savepoints.&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;3B000&#39;</span></div>
+<span class="k">class</span> <span class="nc">InvalidSavepointSpecificationError</span><span class="p">(</span><span class="n">SavepointError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;3B001&#39;</span>
+
+<span class="k">class</span> <span class="nc">TransactionTerminationError</span><span class="p">(</span><span class="n">TransactionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2D000&#39;</span>
+
+<div class="viewcode-block" id="IRError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.IRError">[docs]</a><span class="k">class</span> <span class="nc">IRError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Insufficient Resource Error&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;53000&#39;</span></div>
+<span class="k">class</span> <span class="nc">MemoryError</span><span class="p">(</span><span class="n">IRError</span><span class="p">,</span> <span class="ne">MemoryError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;53200&#39;</span>
+<span class="k">class</span> <span class="nc">DiskFullError</span><span class="p">(</span><span class="n">IRError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;53100&#39;</span>
+<span class="k">class</span> <span class="nc">TooManyConnectionsError</span><span class="p">(</span><span class="n">IRError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;53300&#39;</span>
+
+<div class="viewcode-block" id="PLEError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.PLEError">[docs]</a><span class="k">class</span> <span class="nc">PLEError</span><span class="p">(</span><span class="ne">OverflowError</span><span class="p">):</span>
+	<span class="s">&quot;Program Limit Exceeded&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;54000&#39;</span></div>
+<span class="k">class</span> <span class="nc">ComplexityOverflowError</span><span class="p">(</span><span class="n">PLEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;54001&#39;</span>
+<span class="k">class</span> <span class="nc">ColumnOverflowError</span><span class="p">(</span><span class="n">PLEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;54011&#39;</span>
+<span class="k">class</span> <span class="nc">ArgumentOverflowError</span><span class="p">(</span><span class="n">PLEError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;54023&#39;</span>
+
+<div class="viewcode-block" id="ONIPSError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ONIPSError">[docs]</a><span class="k">class</span> <span class="nc">ONIPSError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Object Not In Prerequisite State&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;55000&#39;</span></div>
+<span class="k">class</span> <span class="nc">ObjectInUseError</span><span class="p">(</span><span class="n">ONIPSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;55006&#39;</span>
+<span class="k">class</span> <span class="nc">ImmutableRuntimeParameterError</span><span class="p">(</span><span class="n">ONIPSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;55P02&#39;</span>
+<span class="k">class</span> <span class="nc">UnavailableLockError</span><span class="p">(</span><span class="n">ONIPSError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;55P03&#39;</span>
+
+
+<div class="viewcode-block" id="SEARVError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.SEARVError">[docs]</a><span class="k">class</span> <span class="nc">SEARVError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Syntax Error or Access Rule Violation&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42000&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">SEARVNameError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42602&#39;</span>
+<span class="k">class</span> <span class="nc">NameTooLongError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42622&#39;</span>
+<span class="k">class</span> <span class="nc">ReservedNameError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42939&#39;</span>
+
+<span class="k">class</span> <span class="nc">ForeignKeyCreationError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42830&#39;</span>
+
+<span class="k">class</span> <span class="nc">InsufficientPrivilegeError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42501&#39;</span>
+<span class="k">class</span> <span class="nc">GroupingError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42803&#39;</span>
+
+<span class="k">class</span> <span class="nc">RecursionError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P19&#39;</span>
+<span class="k">class</span> <span class="nc">WindowError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P20&#39;</span>
+
+<span class="k">class</span> <span class="nc">SyntaxError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42601&#39;</span>
+
+<span class="k">class</span> <span class="nc">TypeError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="k">pass</span>
+<span class="k">class</span> <span class="nc">CoercionError</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42846&#39;</span>
+<span class="k">class</span> <span class="nc">TypeMismatchError</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42804&#39;</span>
+<span class="k">class</span> <span class="nc">IndeterminateTypeError</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P18&#39;</span>
+<span class="k">class</span> <span class="nc">WrongObjectTypeError</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42809&#39;</span>
+
+<span class="k">class</span> <span class="nc">UndefinedError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="k">pass</span>
+<span class="k">class</span> <span class="nc">UndefinedColumnError</span><span class="p">(</span><span class="n">UndefinedError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42703&#39;</span>
+<span class="k">class</span> <span class="nc">UndefinedFunctionError</span><span class="p">(</span><span class="n">UndefinedError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42883&#39;</span>
+<span class="k">class</span> <span class="nc">UndefinedTableError</span><span class="p">(</span><span class="n">UndefinedError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P01&#39;</span>
+<span class="k">class</span> <span class="nc">UndefinedParameterError</span><span class="p">(</span><span class="n">UndefinedError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P02&#39;</span>
+<span class="k">class</span> <span class="nc">UndefinedObjectError</span><span class="p">(</span><span class="n">UndefinedError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42704&#39;</span>
+
+<span class="k">class</span> <span class="nc">DuplicateError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="k">pass</span>
+<span class="k">class</span> <span class="nc">DuplicateColumnError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42701&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateCursorError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P03&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateDatabaseError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P04&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateFunctionError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42723&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicatePreparedStatementError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P05&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateSchemaError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P06&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateTableError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P07&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateAliasError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42712&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateObjectError</span><span class="p">(</span><span class="n">DuplicateError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42710&#39;</span>
+
+<span class="k">class</span> <span class="nc">AmbiguityError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="k">pass</span>
+<span class="k">class</span> <span class="nc">AmbiguousColumnError</span><span class="p">(</span><span class="n">AmbiguityError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42702&#39;</span>
+<span class="k">class</span> <span class="nc">AmbiguousFunctionError</span><span class="p">(</span><span class="n">AmbiguityError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42725&#39;</span>
+<span class="k">class</span> <span class="nc">AmbiguousParameterError</span><span class="p">(</span><span class="n">AmbiguityError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P08&#39;</span>
+<span class="k">class</span> <span class="nc">AmbiguousAliasError</span><span class="p">(</span><span class="n">AmbiguityError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P09&#39;</span>
+
+<span class="k">class</span> <span class="nc">ColumnReferenceError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P10&#39;</span>
+
+<span class="k">class</span> <span class="nc">DefinitionError</span><span class="p">(</span><span class="n">SEARVError</span><span class="p">):</span>
+	<span class="k">pass</span>
+<span class="k">class</span> <span class="nc">ColumnDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42611&#39;</span>
+<span class="k">class</span> <span class="nc">CursorDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P11&#39;</span>
+<span class="k">class</span> <span class="nc">DatabaseDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P12&#39;</span>
+<span class="k">class</span> <span class="nc">FunctionDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P13&#39;</span>
+<span class="k">class</span> <span class="nc">PreparedStatementDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P14&#39;</span>
+<span class="k">class</span> <span class="nc">SchemaDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P15&#39;</span>
+<span class="k">class</span> <span class="nc">TableDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P16&#39;</span>
+<span class="k">class</span> <span class="nc">ObjectDefinitionError</span><span class="p">(</span><span class="n">DefinitionError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;42P17&#39;</span>
+
+
+<span class="k">class</span> <span class="nc">CursorStateError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;24000&#39;</span>
+
+<span class="k">class</span> <span class="nc">WithCheckOptionError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;44000&#39;</span>
+
+<span class="k">class</span> <span class="nc">NameError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="k">pass</span>
+<span class="k">class</span> <span class="nc">CatalogNameError</span><span class="p">(</span><span class="ne">NameError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;3D000&#39;</span>
+<span class="k">class</span> <span class="nc">CursorNameError</span><span class="p">(</span><span class="ne">NameError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;34000&#39;</span>
+<span class="k">class</span> <span class="nc">StatementNameError</span><span class="p">(</span><span class="ne">NameError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;26000&#39;</span>
+<span class="k">class</span> <span class="nc">SchemaNameError</span><span class="p">(</span><span class="ne">NameError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;3F000&#39;</span>
+
+<div class="viewcode-block" id="ICVError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ICVError">[docs]</a><span class="k">class</span> <span class="nc">ICVError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Integrity Contraint Violation&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;23000&#39;</span></div>
+<span class="k">class</span> <span class="nc">RestrictError</span><span class="p">(</span><span class="n">ICVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;23001&#39;</span>
+<span class="k">class</span> <span class="nc">NotNullError</span><span class="p">(</span><span class="n">ICVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;23502&#39;</span>
+<span class="k">class</span> <span class="nc">ForeignKeyError</span><span class="p">(</span><span class="n">ICVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;23503&#39;</span>
+<span class="k">class</span> <span class="nc">UniqueError</span><span class="p">(</span><span class="n">ICVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;23505&#39;</span>
+<span class="k">class</span> <span class="nc">CheckError</span><span class="p">(</span><span class="n">ICVError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;23514&#39;</span>
+
+
+<span class="k">class</span> <span class="nc">DataError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22000&#39;</span>
+
+<span class="k">class</span> <span class="nc">StringRightTruncationError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22001&#39;</span>
+<span class="k">class</span> <span class="nc">StringDataLengthError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22026&#39;</span>
+<span class="k">class</span> <span class="nc">ZeroLengthString</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200F&#39;</span>
+
+<span class="k">class</span> <span class="nc">EncodingError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22021&#39;</span>
+<span class="k">class</span> <span class="nc">ArrayElementError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2202E&#39;</span>
+<span class="k">class</span> <span class="nc">SpecificTypeMismatch</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200G&#39;</span>
+
+<span class="k">class</span> <span class="nc">NullValueNotAllowedError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22004&#39;</span>
+<span class="k">class</span> <span class="nc">NullValueNoIndicatorParameter</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22002&#39;</span>
+
+<span class="k">class</span> <span class="nc">ZeroDivisionError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22012&#39;</span>
+<span class="k">class</span> <span class="nc">FloatingPointError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22P01&#39;</span>
+<span class="k">class</span> <span class="nc">AssignmentError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22005&#39;</span>
+<span class="k">class</span> <span class="nc">IndicatorOverflowError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22022&#39;</span>
+<span class="k">class</span> <span class="nc">BadCopyError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22P04&#39;</span>
+
+<span class="k">class</span> <span class="nc">TextRepresentationError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22P02&#39;</span>
+<span class="k">class</span> <span class="nc">BinaryRepresentationError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22P03&#39;</span>
+<span class="k">class</span> <span class="nc">UntranslatableCharacterError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22P05&#39;</span>
+<span class="k">class</span> <span class="nc">NonstandardUseOfEscapeCharacterError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22P06&#39;</span>
+
+<span class="k">class</span> <span class="nc">NotXMLError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200L&#39;</span>
+<span class="k">class</span> <span class="nc">XMLDocumentError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200M&#39;</span>
+<span class="k">class</span> <span class="nc">XMLContentError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200N&#39;</span>
+<span class="k">class</span> <span class="nc">XMLCommentError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200S&#39;</span>
+<span class="k">class</span> <span class="nc">XMLProcessingInstructionError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200T&#39;</span>
+
+<span class="k">class</span> <span class="nc">DateTimeFormatError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22007&#39;</span>
+<span class="k">class</span> <span class="nc">TimeZoneDisplacementValueError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22009&#39;</span>
+<span class="k">class</span> <span class="nc">DateTimeFieldOverflowError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22008&#39;</span>
+<span class="k">class</span> <span class="nc">IntervalFieldOverflowError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22015&#39;</span>
+
+<span class="k">class</span> <span class="nc">LogArgumentError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2201E&#39;</span>
+<span class="k">class</span> <span class="nc">PowerFunctionArgumentError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2201F&#39;</span>
+<span class="k">class</span> <span class="nc">WidthBucketFunctionArgumentError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2201G&#39;</span>
+<span class="k">class</span> <span class="nc">CastCharacterValueError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22018&#39;</span>
+
+<span class="k">class</span> <span class="nc">EscapeCharacterError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22019&#39;</span>
+<span class="k">class</span> <span class="nc">EscapeOctetError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200D&#39;</span>
+<span class="k">class</span> <span class="nc">EscapeSequenceError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22025&#39;</span>
+<span class="k">class</span> <span class="nc">EscapeCharacterConflictError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200B&#39;</span>
+<div class="viewcode-block" id="EscapeCharacterError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.EscapeCharacterError">[docs]</a><span class="k">class</span> <span class="nc">EscapeCharacterError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="s">&quot;Invalid escape character&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2200C&#39;</span>
+</div>
+<span class="k">class</span> <span class="nc">SubstringError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22011&#39;</span>
+<span class="k">class</span> <span class="nc">TrimError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22027&#39;</span>
+<span class="k">class</span> <span class="nc">IndicatorParameterValueError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22010&#39;</span>
+
+<span class="k">class</span> <span class="nc">LimitValueError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2201W&#39;</span>
+	<span class="n">pg_code</span> <span class="o">=</span> <span class="s">&#39;22020&#39;</span>
+<span class="k">class</span> <span class="nc">OffsetValueError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2201X&#39;</span>
+
+<span class="k">class</span> <span class="nc">ParameterValueError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22023&#39;</span>
+<span class="k">class</span> <span class="nc">RegularExpressionError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;2201B&#39;</span>
+<span class="k">class</span> <span class="nc">NumericRangeError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22003&#39;</span>
+<span class="k">class</span> <span class="nc">UnterminatedCStringError</span><span class="p">(</span><span class="n">DataError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;22024&#39;</span>
+
+
+<span class="k">class</span> <span class="nc">InternalError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;XX000&#39;</span>
+<span class="k">class</span> <span class="nc">DataCorruptedError</span><span class="p">(</span><span class="n">InternalError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;XX001&#39;</span>
+<span class="k">class</span> <span class="nc">IndexCorruptedError</span><span class="p">(</span><span class="n">InternalError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;XX002&#39;</span>
+
+<div class="viewcode-block" id="SIOError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.SIOError">[docs]</a><span class="k">class</span> <span class="nc">SIOError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;System I/O&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;58000&#39;</span></div>
+<span class="k">class</span> <span class="nc">UndefinedFileError</span><span class="p">(</span><span class="n">SIOError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;58P01&#39;</span>
+<span class="k">class</span> <span class="nc">DuplicateFileError</span><span class="p">(</span><span class="n">SIOError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;58P02&#39;</span>
+
+<div class="viewcode-block" id="CFError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.CFError">[docs]</a><span class="k">class</span> <span class="nc">CFError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Configuration File Error&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;F0000&#39;</span></div>
+<span class="k">class</span> <span class="nc">LockFileExistsError</span><span class="p">(</span><span class="n">CFError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;F0001&#39;</span>
+
+<div class="viewcode-block" id="OIError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.OIError">[docs]</a><span class="k">class</span> <span class="nc">OIError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Operator Intervention&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;57000&#39;</span></div>
+<span class="k">class</span> <span class="nc">QueryCanceledError</span><span class="p">(</span><span class="n">OIError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;57014&#39;</span>
+<span class="k">class</span> <span class="nc">AdminShutdownError</span><span class="p">(</span><span class="n">OIError</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;57P01&#39;</span>
+<span class="k">class</span> <span class="nc">CrashShutdownError</span><span class="p">(</span><span class="n">OIError</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;57P02&#39;</span>
+<div class="viewcode-block" id="ServerNotReadyError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.ServerNotReadyError">[docs]</a><span class="k">class</span> <span class="nc">ServerNotReadyError</span><span class="p">(</span><span class="n">OIError</span><span class="p">,</span> <span class="n">Disconnection</span><span class="p">):</span>
+	<span class="s">&#39;Thrown when a connection is established to a server that is still starting up.&#39;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;57P03&#39;</span>
+</div>
+<div class="viewcode-block" id="PLPGSQLError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.PLPGSQLError">[docs]</a><span class="k">class</span> <span class="nc">PLPGSQLError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+	<span class="s">&quot;Error raised by a PL/PgSQL procedural function&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;P0000&#39;</span></div>
+<div class="viewcode-block" id="PLPGSQLRaiseError"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.PLPGSQLRaiseError">[docs]</a><span class="k">class</span> <span class="nc">PLPGSQLRaiseError</span><span class="p">(</span><span class="n">PLPGSQLError</span><span class="p">):</span>
+	<span class="s">&quot;Error raised by a PL/PgSQL RAISE statement.&quot;</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;P0001&#39;</span></div>
+<span class="k">class</span> <span class="nc">PLPGSQLNoDataFoundError</span><span class="p">(</span><span class="n">PLPGSQLError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;P0002&#39;</span>
+<span class="k">class</span> <span class="nc">PLPGSQLTooManyRowsError</span><span class="p">(</span><span class="n">PLPGSQLError</span><span class="p">):</span>
+	<span class="n">code</span> <span class="o">=</span> <span class="s">&#39;P0003&#39;</span>
+
+
+<span class="c"># Setup mapping to provide code based exception lookup.</span>
+<span class="n">code_to_error</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">code_to_warning</span> <span class="o">=</span> <span class="p">{}</span>
+<div class="viewcode-block" id="map_errors_and_warnings"><a class="viewcode-back" href="../../reference.html#postgresql.exceptions.map_errors_and_warnings">[docs]</a><span class="k">def</span> <span class="nf">map_errors_and_warnings</span><span class="p">(</span>
+	<span class="n">objs</span> <span class="p">:</span> <span class="s">&quot;A iterable of `Warning`s and `Error`&#39;s&quot;</span><span class="p">,</span>
+	<span class="n">error_container</span> <span class="p">:</span> <span class="s">&quot;apply the code to error association to this object&quot;</span> <span class="o">=</span> <span class="n">code_to_error</span><span class="p">,</span>
+	<span class="n">warning_container</span> <span class="p">:</span> <span class="s">&quot;apply the code to warning association to this object&quot;</span> <span class="o">=</span> <span class="n">code_to_warning</span><span class="p">,</span>
+<span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Construct the code-to-error and code-to-warning associations.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="nb">issubclass</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="ne">Warning</span><span class="p">),</span> <span class="nb">type</span><span class="p">(</span><span class="n">Error</span><span class="p">))):</span>
+			<span class="c"># It&#39;s not object of interest.</span>
+			<span class="k">continue</span>
+		<span class="n">code</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s">&#39;code&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">code</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="c"># It has no code attribute, or the code was set to None.</span>
+			<span class="c"># If it&#39;s code is None, we don&#39;t map it as it&#39;s a &quot;container&quot;.</span>
+			<span class="k">continue</span>
+
+		<span class="k">if</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Error</span><span class="p">):</span>
+			<span class="n">base</span> <span class="o">=</span> <span class="n">Error</span>
+			<span class="n">container</span> <span class="o">=</span> <span class="n">error_container</span>
+		<span class="k">elif</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="ne">Warning</span><span class="p">):</span>
+			<span class="n">base</span> <span class="o">=</span> <span class="ne">Warning</span>
+			<span class="n">container</span> <span class="o">=</span> <span class="n">warning_container</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">continue</span>
+
+		<span class="n">cur_obj</span> <span class="o">=</span> <span class="n">container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">cur_obj</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">cur_obj</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+			<span class="c"># There is no object yet, or the object at the code</span>
+			<span class="c"># is not the most general class.</span>
+			<span class="c"># The latter condition comes into play when</span>
+			<span class="c"># there are sub-Class types that share the Class code</span>
+			<span class="c"># with the most general type. (See TypeError)</span>
+			<span class="n">container</span><span class="p">[</span><span class="n">code</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span>
+			<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s">&#39;pg_code&#39;</span><span class="p">):</span>
+				<span class="c"># If there&#39;s a PostgreSQL version of the code,</span>
+				<span class="c"># map it as well for older servers.</span>
+				<span class="n">container</span><span class="p">[</span><span class="n">obj</span><span class="o">.</span><span class="n">pg_code</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span>
+</div>
+<span class="k">def</span> <span class="nf">code_lookup</span><span class="p">(</span>
+	<span class="n">default</span> <span class="p">:</span> <span class="s">&quot;The object to return when no code or class is found&quot;</span><span class="p">,</span>
+	<span class="n">container</span> <span class="p">:</span> <span class="s">&quot;where to look for the object associated with the code&quot;</span><span class="p">,</span>
+	<span class="n">code</span> <span class="p">:</span> <span class="s">&quot;the code to find the exception for&quot;</span>
+<span class="p">):</span>
+	<span class="n">obj</span> <span class="o">=</span> <span class="n">container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+	<span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="n">obj</span> <span class="o">=</span> <span class="n">container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">code</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="s">&quot;000&quot;</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+	<span class="k">return</span> <span class="n">obj</span>
+
+<span class="n">map_errors_and_warnings</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="n">__name__</span><span class="p">]</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+<span class="n">ErrorLookup</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">code_lookup</span><span class="p">,</span> <span class="n">Error</span><span class="p">,</span> <span class="n">code_to_error</span><span class="p">)</span>
+<span class="n">WarningLookup</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">code_lookup</span><span class="p">,</span> <span class="ne">Warning</span><span class="p">,</span> <span class="n">code_to_warning</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+	<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+		<span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;01&#39;</span><span class="p">):</span>
+			<span class="n">e</span> <span class="o">=</span> <span class="n">WarningLookup</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">e</span> <span class="o">=</span> <span class="n">ErrorLookup</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+		<span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;postgresql.exceptions.</span><span class="si">%s</span><span class="s"> [</span><span class="si">%s</span><span class="s">]</span><span class="si">%s%s</span><span class="s">&#39;</span> <span class="o">%</span><span class="p">(</span>
+				<span class="n">e</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">code</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">linesep</span><span class="p">,</span> <span class="p">(</span>
+					<span class="n">e</span><span class="o">.</span><span class="n">__doc__</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">linesep</span><span class="o">.</span><span class="n">join</span><span class="p">([</span>
+						<span class="s">&#39;  &#39;</span> <span class="o">+</span> <span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">__doc__</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+					<span class="p">])</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">linesep</span> <span class="ow">or</span> <span class="s">&#39;&#39;</span>
+				<span class="p">)</span>
+			<span class="p">)</span>
+		<span class="p">)</span>
+<span class="c">##</span>
+<span class="c"># vim: ts=3:sw=3:noet:</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" >postgresql</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

@@ -1,0 +1,157 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Changes in v1.1 &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="index.html" />
+    <link rel="next" title="Changes in v1.0" href="changes-v1.0.html" />
+    <link rel="prev" title="Reference" href="reference.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="changes-v1.0.html" title="Changes in v1.0"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="reference.html" title="Reference"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="changes-in-v1-1">
+<h1>Changes in v1.1<a class="headerlink" href="#changes-in-v1-1" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="id1">
+<h2>1.1.0<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><ul class="simple">
+<li>Remove two-phase commit interfaces per deprecation in v1.0.
+For proper two phase commit use, a lock manager must be employed that
+the implementation did nothing to accommodate for.</li>
+<li>Add support for unpacking anonymous records (Elvis)</li>
+<li>Support PostgreSQL 9.2 (Elvis)</li>
+<li>Python 3.3 Support (Elvis)</li>
+<li>Add column execution method. (jwp)</li>
+<li>Add one-shot statement interface. Connection.query.* (jwp)</li>
+<li>Modify the inet/cidr support by relying on the ipaddress module introduced in Python 3.3 (Google&#8217;s ipaddr project)
+The existing implementation relied on simple str() representation supported by the
+socket module. Unfortunately, MS Windows&#8217; socket library does not appear to support the
+necessary functionality, or Python&#8217;s socket module does not expose it. ipaddress fixes
+the problem.</li>
+</ul>
+</div></blockquote>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">The <cite>ipaddress</cite> module is now required for local inet and cidr. While it is
+of &#8220;preliminary&#8221; status, the ipaddr project has been around for some time and
+well supported. ipaddress appears to be the safest way forward for native
+network types.</p>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Changes in v1.1</a><ul>
+<li><a class="reference internal" href="#id1">1.1.0</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="reference.html"
+                        title="previous chapter">Reference</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="changes-v1.0.html"
+                        title="next chapter">Changes in v1.0</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/changes-v1.1.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="changes-v1.0.html" title="Changes in v1.0"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="reference.html" title="Reference"
+             >previous</a> |</li>
+        <li><a href="index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

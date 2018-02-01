@@ -1,0 +1,366 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql.installation &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../../index.html" />
+    <link rel="up" title="postgresql" href="../postgresql.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" accesskey="U">postgresql</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql.installation</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># .installation</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Collect and access PostgreSQL installation information.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">os.path</span>
+<span class="kn">import</span> <span class="nn">subprocess</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">errno</span>
+<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">cycle</span><span class="p">,</span> <span class="n">chain</span>
+<span class="kn">from</span> <span class="nn">operator</span> <span class="kn">import</span> <span class="n">itemgetter</span>
+<span class="kn">from</span> <span class="nn">.python.os</span> <span class="kn">import</span> <span class="n">find_executable</span><span class="p">,</span> <span class="n">close_fds</span><span class="p">,</span> <span class="n">platform_exe</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">versionstring</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">api</span> <span class="k">as</span> <span class="n">pg_api</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">string</span> <span class="k">as</span> <span class="n">pg_str</span>
+
+<span class="c"># Get the output from the given command.</span>
+<span class="c"># *args are transformed into &quot;long options&quot;, &#39;--&#39; + x</span>
+<span class="k">def</span> <span class="nf">get_command_output</span><span class="p">(</span><span class="n">exe</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+	<span class="n">pa</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">exe</span><span class="p">)</span> <span class="o">+</span> <span class="p">[</span>
+		<span class="s">&#39;--&#39;</span> <span class="o">+</span> <span class="n">x</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">args</span> <span class="k">if</span> <span class="n">x</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+	<span class="p">]</span>
+	<span class="n">p</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span><span class="n">pa</span><span class="p">,</span>
+		<span class="n">close_fds</span> <span class="o">=</span> <span class="n">close_fds</span><span class="p">,</span>
+		<span class="n">stdout</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+		<span class="n">stderr</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+		<span class="n">stdin</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+		<span class="n">shell</span> <span class="o">=</span> <span class="bp">False</span>
+	<span class="p">)</span>
+	<span class="n">p</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+	<span class="n">p</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+	<span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">rv</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+			<span class="k">break</span>
+		<span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">EINTR</span><span class="p">:</span>
+				<span class="k">raise</span>
+	<span class="k">if</span> <span class="n">rv</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+		<span class="k">return</span> <span class="bp">None</span>
+	<span class="k">with</span> <span class="n">p</span><span class="o">.</span><span class="n">stdout</span><span class="p">,</span> <span class="n">io</span><span class="o">.</span><span class="n">TextIOWrapper</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">stdout</span><span class="p">)</span> <span class="k">as</span> <span class="n">txt</span><span class="p">:</span>
+		<span class="k">return</span> <span class="n">txt</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+
+<div class="viewcode-block" id="pg_config_dictionary"><a class="viewcode-back" href="../../reference.html#postgresql.installation.pg_config_dictionary">[docs]</a><span class="k">def</span> <span class="nf">pg_config_dictionary</span><span class="p">(</span><span class="o">*</span><span class="n">pg_config_path</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Create a dictionary of the information available in the given</span>
+<span class="sd">	pg_config_path. This provides a one-shot solution to fetching information</span>
+<span class="sd">	from the pg_config binary. Returns a dictionary object.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">default_output</span> <span class="o">=</span> <span class="n">get_command_output</span><span class="p">(</span><span class="n">pg_config_path</span><span class="p">)</span>
+	<span class="k">if</span> <span class="n">default_output</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="n">d</span> <span class="o">=</span> <span class="p">{}</span>
+		<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">default_output</span><span class="o">.</span><span class="n">splitlines</span><span class="p">():</span>
+			<span class="k">if</span> <span class="ow">not</span> <span class="n">x</span> <span class="ow">or</span> <span class="n">x</span><span class="o">.</span><span class="n">isspace</span><span class="p">()</span> <span class="ow">or</span> <span class="n">x</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">)</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+				<span class="k">continue</span>
+			<span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+			<span class="c"># keep it semi-consistent with instance</span>
+			<span class="n">d</span><span class="p">[</span><span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+		<span class="k">return</span> <span class="n">d</span>
+
+	<span class="c"># Support for 8.0 pg_config and earlier.</span>
+	<span class="c"># This requires three invocations of pg_config:</span>
+	<span class="c">#  First --help, to get the -- options available,</span>
+	<span class="c">#  Second, all the -- options except version.</span>
+	<span class="c">#  Third, --version as it appears to be exclusive in some cases.</span>
+	<span class="n">opt</span> <span class="o">=</span> <span class="p">[]</span>
+	<span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">get_command_output</span><span class="p">(</span><span class="n">pg_config_path</span><span class="p">,</span> <span class="s">&#39;help&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">():</span>
+		<span class="n">dash_pos</span> <span class="o">=</span> <span class="n">l</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;--&#39;</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">dash_pos</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+			<span class="k">continue</span>
+		<span class="n">sp_pos</span> <span class="o">=</span> <span class="n">l</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39; &#39;</span><span class="p">,</span> <span class="n">dash_pos</span><span class="p">)</span>
+		<span class="c"># the dashes are added by the call command</span>
+		<span class="n">opt</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">l</span><span class="p">[</span><span class="n">dash_pos</span><span class="o">+</span><span class="mi">2</span><span class="p">:</span><span class="n">sp_pos</span><span class="p">])</span>
+	<span class="k">if</span> <span class="s">&#39;help&#39;</span> <span class="ow">in</span> <span class="n">opt</span><span class="p">:</span>
+		<span class="n">opt</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="s">&#39;help&#39;</span><span class="p">)</span>
+	<span class="k">if</span> <span class="s">&#39;version&#39;</span> <span class="ow">in</span> <span class="n">opt</span><span class="p">:</span>
+		<span class="n">opt</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="s">&#39;version&#39;</span><span class="p">)</span>
+
+	<span class="n">d</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">opt</span><span class="p">,</span> <span class="n">get_command_output</span><span class="p">(</span><span class="n">pg_config_path</span><span class="p">,</span> <span class="o">*</span><span class="n">opt</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()))</span>
+	<span class="n">d</span><span class="p">[</span><span class="s">&#39;version&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_command_output</span><span class="p">(</span><span class="n">pg_config_path</span><span class="p">,</span> <span class="s">&#39;version&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+	<span class="k">return</span> <span class="n">d</span>
+
+<span class="c">##</span>
+<span class="c"># Build a key-value pair list of the configure options.</span>
+<span class="c"># If the item is quoted, mind the quotes.</span></div>
+<span class="k">def</span> <span class="nf">parse_configure_options</span><span class="p">(</span><span class="n">confopt</span><span class="p">,</span> <span class="n">quotes</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\&#39;</span><span class="s">&quot;&#39;</span><span class="p">,</span> <span class="n">dash_and_quotes</span> <span class="o">=</span> <span class="s">&#39;-</span><span class="se">\&#39;</span><span class="s">&quot;&#39;</span><span class="p">):</span>
+	<span class="c"># This is not a robust solution, but it will usually work.</span>
+	<span class="c"># Chances are that there is a quote at the beginning of this string.</span>
+	<span class="c"># However, in the windows pg_config.exe, this appears to be absent.</span>
+	<span class="k">if</span> <span class="n">confopt</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">1</span><span class="p">]</span> <span class="ow">in</span> <span class="n">quotes</span><span class="p">:</span>
+		<span class="c"># quote at the beginning. assume it&#39;s used consistently.</span>
+		<span class="n">quote</span> <span class="o">=</span> <span class="n">confopt</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">1</span><span class="p">]</span>
+	<span class="k">elif</span> <span class="n">confopt</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">in</span> <span class="n">quotes</span><span class="p">:</span>
+		<span class="c"># quote at the end?</span>
+		<span class="n">quote</span> <span class="o">=</span> <span class="n">confopt</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+	<span class="k">else</span><span class="p">:</span>
+		<span class="c"># fallback to something. :(</span>
+		<span class="n">quote</span> <span class="o">=</span> <span class="s">&quot;&#39;&quot;</span>
+	<span class="c">##</span>
+	<span class="c"># This is using the wrong kind of split, but the pg_config</span>
+	<span class="c"># output has been consistent enough for this to work.</span>
+	<span class="n">parts</span> <span class="o">=</span> <span class="n">pg_str</span><span class="o">.</span><span class="n">split_using</span><span class="p">(</span><span class="n">confopt</span><span class="p">,</span> <span class="n">quote</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s">&#39; &#39;</span><span class="p">)</span>
+	<span class="n">qq</span> <span class="o">=</span> <span class="n">quote</span> <span class="o">*</span> <span class="mi">2</span>
+	<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">:</span>
+		<span class="k">if</span> <span class="n">qq</span> <span class="ow">in</span> <span class="n">x</span><span class="p">:</span>
+			<span class="c"># singularize the quotes</span>
+			<span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">qq</span><span class="p">,</span> <span class="n">quote</span><span class="p">)</span>
+		<span class="c"># remove the quotes around &#39;--&#39; from option.</span>
+		<span class="c"># if it splits once, the &#39;1&#39; index will</span>
+		<span class="c"># be `True`, indicating that the flag was given, but</span>
+		<span class="c"># was not given a value.</span>
+		<span class="n">kv</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="n">dash_and_quotes</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="p">[</span><span class="bp">True</span><span class="p">]</span>
+		<span class="n">key</span> <span class="o">=</span> <span class="n">kv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;-&#39;</span><span class="p">,</span><span class="s">&#39;_&#39;</span><span class="p">)</span>
+		<span class="c"># Ignore empty keys.</span>
+		<span class="k">if</span> <span class="n">key</span><span class="p">:</span>
+			<span class="k">yield</span> <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">kv</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+<div class="viewcode-block" id="default_pg_config"><a class="viewcode-back" href="../../reference.html#postgresql.installation.default_pg_config">[docs]</a><span class="k">def</span> <span class="nf">default_pg_config</span><span class="p">(</span><span class="n">execname</span> <span class="o">=</span> <span class="s">&#39;pg_config&#39;</span><span class="p">,</span> <span class="n">envkey</span> <span class="o">=</span> <span class="s">&#39;PGINSTALLATION&#39;</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Get the default `pg_config` executable on the system.</span>
+
+<span class="sd">	If &#39;PGINSTALLATION&#39; is in the environment, use it.</span>
+<span class="sd">	Otherwise, look through the system&#39;s PATH environment.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">pg_config_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">envkey</span><span class="p">)</span>
+	<span class="k">if</span> <span class="n">pg_config_path</span><span class="p">:</span>
+		<span class="c"># Trust PGINSTALLATION.</span>
+		<span class="k">return</span> <span class="n">platform_exe</span><span class="p">(</span><span class="n">pg_config_path</span><span class="p">)</span>
+	<span class="k">return</span> <span class="n">find_executable</span><span class="p">(</span><span class="n">execname</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Installation"><a class="viewcode-back" href="../../reference.html#postgresql.installation.Installation">[docs]</a><span class="k">class</span> <span class="nc">Installation</span><span class="p">(</span><span class="n">pg_api</span><span class="o">.</span><span class="n">Installation</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Class providing a Python interface to PostgreSQL installation information.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">version</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="n">version_info</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="nb">type</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="n">configure_options</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="c">#: The pg_config information dictionary.</span>
+	<span class="n">info</span> <span class="o">=</span> <span class="bp">None</span>
+
+	<span class="n">pg_executables</span> <span class="o">=</span> <span class="p">(</span>
+		<span class="s">&#39;pg_config&#39;</span><span class="p">,</span>
+		<span class="s">&#39;psql&#39;</span><span class="p">,</span>
+		<span class="s">&#39;initdb&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pg_resetxlog&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pg_controldata&#39;</span><span class="p">,</span>
+		<span class="s">&#39;clusterdb&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pg_ctl&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pg_dump&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pg_dumpall&#39;</span><span class="p">,</span>
+		<span class="s">&#39;postgres&#39;</span><span class="p">,</span>
+		<span class="s">&#39;postmaster&#39;</span><span class="p">,</span>
+		<span class="s">&#39;reindexdb&#39;</span><span class="p">,</span>
+		<span class="s">&#39;vacuumdb&#39;</span><span class="p">,</span>
+		<span class="s">&#39;ipcclean&#39;</span><span class="p">,</span>
+		<span class="s">&#39;createdb&#39;</span><span class="p">,</span>
+		<span class="s">&#39;ecpg&#39;</span><span class="p">,</span>
+		<span class="s">&#39;createuser&#39;</span><span class="p">,</span>
+		<span class="s">&#39;createlang&#39;</span><span class="p">,</span>
+		<span class="s">&#39;droplang&#39;</span><span class="p">,</span>
+		<span class="s">&#39;dropuser&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pg_restore&#39;</span><span class="p">,</span>
+	<span class="p">)</span>
+
+	<span class="n">pg_libraries</span> <span class="o">=</span> <span class="p">(</span>
+		<span class="s">&#39;libpq&#39;</span><span class="p">,</span>
+		<span class="s">&#39;libecpg&#39;</span><span class="p">,</span>
+		<span class="s">&#39;libpgtypes&#39;</span><span class="p">,</span>
+		<span class="s">&#39;libecpg_compat&#39;</span><span class="p">,</span>
+	<span class="p">)</span>
+
+	<span class="n">pg_directories</span> <span class="o">=</span> <span class="p">(</span>
+		<span class="s">&#39;bindir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;docdir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;includedir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pkgincludedir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;includedir_server&#39;</span><span class="p">,</span>
+		<span class="s">&#39;libdir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;pkglibdir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;localedir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;mandir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;sharedir&#39;</span><span class="p">,</span>
+		<span class="s">&#39;sysconfdir&#39;</span><span class="p">,</span>
+	<span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">l</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">configure_options</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+		<span class="n">l</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span> <span class="o">=</span> <span class="n">itemgetter</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+		<span class="k">yield</span> <span class="p">(</span><span class="s">&#39;version&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">l</span><span class="p">:</span>
+			<span class="k">yield</span> <span class="p">(</span><span class="s">&#39;configure_options&#39;</span><span class="p">,</span>
+				<span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">linesep</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">((</span>
+					<span class="n">k</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="bp">True</span> <span class="k">else</span> <span class="n">k</span> <span class="o">+</span> <span class="s">&#39;=&#39;</span> <span class="o">+</span> <span class="n">v</span>
+					<span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="n">l</span>
+				<span class="p">))</span>
+			<span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">format</span> <span class="o">=</span> <span class="s">&quot;{mod}.{name}({info!r})&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">):</span>
+		<span class="k">return</span> <span class="n">format</span><span class="p">(</span>
+			<span class="n">mod</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__module__</span><span class="p">,</span>
+			<span class="n">name</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+			<span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">info</span>
+		<span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">info</span> <span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Initialize the Installation using the given information dictionary.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">info</span> <span class="o">=</span> <span class="n">info</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">info</span><span class="p">[</span><span class="s">&quot;version&quot;</span><span class="p">]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="n">vs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">version_info</span> <span class="o">=</span> <span class="n">versionstring</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">versionstring</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">vs</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">configure_options</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+			<span class="n">parse_configure_options</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;configure&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">))</span>
+		<span class="p">)</span>
+		<span class="c"># collect the paths in a dictionary first</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">paths</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+
+		<span class="n">exists</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span>
+		<span class="n">join</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span>
+		<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pg_directories</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">paths</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+
+		<span class="c"># find all the PG executables that exist for the installation.</span>
+		<span class="n">bindir_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;bindir&#39;</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">bindir_path</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">paths</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pg_executables</span><span class="p">,</span> <span class="n">cycle</span><span class="p">((</span><span class="bp">None</span><span class="p">,))))</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pg_executables</span><span class="p">:</span>
+				<span class="n">path</span> <span class="o">=</span> <span class="n">platform_exe</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="n">bindir_path</span><span class="p">,</span> <span class="n">k</span><span class="p">))</span>
+				<span class="k">if</span> <span class="n">exists</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">paths</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">path</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">paths</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">paths</span><span class="p">)</span>
+
+	<span class="nd">@property</span>
+<div class="viewcode-block" id="Installation.ssl"><a class="viewcode-back" href="../../reference.html#postgresql.installation.Installation.ssl">[docs]</a>	<span class="k">def</span> <span class="nf">ssl</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Whether the installation was compiled with SSL support.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">return</span> <span class="s">&#39;with_openssl&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_options</span>
+</div></div>
+<div class="viewcode-block" id="default"><a class="viewcode-back" href="../../reference.html#postgresql.installation.default">[docs]</a><span class="k">def</span> <span class="nf">default</span><span class="p">(</span><span class="n">typ</span> <span class="o">=</span> <span class="n">Installation</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Get the default Installation.</span>
+
+<span class="sd">	Uses default_pg_config() to identify the executable.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">path</span> <span class="o">=</span> <span class="n">default_pg_config</span><span class="p">()</span>
+	<span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="k">return</span> <span class="bp">None</span>
+	<span class="k">return</span> <span class="n">typ</span><span class="p">(</span><span class="n">pg_config_dictionary</span><span class="p">(</span><span class="n">path</span><span class="p">))</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+	<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+		<span class="n">d</span> <span class="o">=</span> <span class="n">pg_config_dictionary</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+		<span class="n">i</span> <span class="o">=</span> <span class="n">Installation</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+	<span class="k">else</span><span class="p">:</span>
+		<span class="n">i</span> <span class="o">=</span> <span class="n">default</span><span class="p">()</span>
+	<span class="kn">from</span> <span class="nn">.python.element</span> <span class="kn">import</span> <span class="n">format_element</span>
+	<span class="k">print</span><span class="p">(</span><span class="n">format_element</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" >postgresql</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

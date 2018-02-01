@@ -1,0 +1,1 @@
+wscript.exe "C:\etc\startup\silent.vbs" "C:\etc\startup\run_openzoom.bat"

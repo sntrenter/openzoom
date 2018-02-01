@@ -1,0 +1,353 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql.temporal &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../../index.html" />
+    <link rel="up" title="postgresql" href="../postgresql.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" accesskey="U">postgresql</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql.temporal</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># .temporal - manage the temporary cluster</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Temporary PostgreSQL cluster for the process.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">atexit</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">deque</span>
+<span class="kn">from</span> <span class="nn">.cluster</span> <span class="kn">import</span> <span class="n">Cluster</span><span class="p">,</span> <span class="n">ClusterError</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">installation</span>
+<span class="kn">from</span> <span class="nn">.python.socket</span> <span class="kn">import</span> <span class="n">find_available_port</span>
+
+<div class="viewcode-block" id="Temporal"><a class="viewcode-back" href="../../reference.html#postgresql.temporal.Temporal">[docs]</a><span class="k">class</span> <span class="nc">Temporal</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Manages a temporary cluster for the duration of the process.</span>
+
+<span class="sd">	Instances of this class reference a distinct cluster. These clusters are</span>
+<span class="sd">	transient; they will only exist until the process exits.</span>
+
+<span class="sd">	Usage::</span>
+
+<span class="sd">		&gt;&gt;&gt; from postgresql.temporal import pg_tmp</span>
+<span class="sd">		&gt;&gt;&gt; with pg_tmp:</span>
+<span class="sd">		...  ps = db.prepare(&#39;SELECT 1&#39;)</span>
+<span class="sd">		...  assert ps.first() == 1</span>
+
+<span class="sd">	Or `pg_tmp` can decorate a method or function.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#: Format the cluster directory name.</span>
+	<span class="n">cluster_dirname</span> <span class="o">=</span> <span class="s">&#39;pg_tmp_{0}_{1}&#39;</span><span class="o">.</span><span class="n">format</span>
+	<span class="n">cluster</span> <span class="o">=</span> <span class="bp">None</span>
+
+	<span class="n">_init_pid_</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="n">_local_id_</span> <span class="o">=</span> <span class="mi">0</span>
+	<span class="n">builtins_keys</span> <span class="o">=</span> <span class="p">{</span>
+		<span class="s">&#39;connector&#39;</span><span class="p">,</span>
+		<span class="s">&#39;db&#39;</span><span class="p">,</span>
+		<span class="s">&#39;do&#39;</span><span class="p">,</span>
+		<span class="s">&#39;xact&#39;</span><span class="p">,</span>
+		<span class="s">&#39;proc&#39;</span><span class="p">,</span>
+		<span class="s">&#39;settings&#39;</span><span class="p">,</span>
+		<span class="s">&#39;prepare&#39;</span><span class="p">,</span>
+		<span class="s">&#39;sqlexec&#39;</span><span class="p">,</span>
+		<span class="s">&#39;newdb&#39;</span><span class="p">,</span>
+	<span class="p">}</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">sandbox_id</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="c"># identifier for keeping temporary instances unique.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">_local_id_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">local_id</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">_local_id_</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">callable</span><span class="p">):</span>
+		<span class="k">def</span> <span class="nf">in_pg_temporal_context</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+			<span class="k">with</span> <span class="bp">self</span><span class="p">:</span>
+				<span class="k">return</span> <span class="nb">callable</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+		<span class="n">n</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">callable</span><span class="p">,</span> <span class="s">&#39;__name__&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">n</span><span class="p">:</span>
+			<span class="n">in_pg_temporal_context</span><span class="o">.</span><span class="n">__name__</span> <span class="o">=</span> <span class="n">n</span>
+		<span class="k">return</span> <span class="n">in_pg_temporal_context</span>
+
+	<span class="k">def</span> <span class="nf">destroy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c"># Don&#39;t destroy if it&#39;s not the initializing process.</span>
+		<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_init_pid_</span><span class="p">:</span>
+			<span class="c"># Kill all the open connections.</span>
+			<span class="k">try</span><span class="p">:</span>
+				<span class="n">c</span> <span class="o">=</span> <span class="n">cluster</span><span class="o">.</span><span class="n">connection</span><span class="p">(</span><span class="n">user</span> <span class="o">=</span> <span class="s">&#39;test&#39;</span><span class="p">,</span> <span class="n">database</span> <span class="o">=</span> <span class="s">&#39;template1&#39;</span><span class="p">,)</span>
+				<span class="k">with</span> <span class="n">c</span><span class="p">:</span>
+					<span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">version_info</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="p">(</span><span class="mi">9</span><span class="p">,</span><span class="mi">1</span><span class="p">):</span>
+						<span class="n">c</span><span class="o">.</span><span class="n">sys</span><span class="o">.</span><span class="n">terminate_backends</span><span class="p">()</span>
+					<span class="k">else</span><span class="p">:</span>
+						<span class="n">c</span><span class="o">.</span><span class="n">sys</span><span class="o">.</span><span class="n">terminate_backends_92</span><span class="p">()</span>
+			<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+				<span class="c"># Doesn&#39;t matter much if it fails.</span>
+				<span class="k">pass</span>
+			<span class="n">cluster</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">cluster</span> <span class="o">=</span> <span class="bp">None</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_init_pid_</span> <span class="o">=</span> <span class="bp">None</span>
+			<span class="k">if</span> <span class="n">cluster</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+				<span class="n">cluster</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+				<span class="n">cluster</span><span class="o">.</span><span class="n">wait_until_stopped</span><span class="p">(</span><span class="n">timeout</span> <span class="o">=</span> <span class="mi">5</span><span class="p">)</span>
+				<span class="n">cluster</span><span class="o">.</span><span class="n">drop</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">installation_factory</span> <span class="o">=</span> <span class="n">installation</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+		<span class="n">inshint</span> <span class="o">=</span> <span class="p">{</span>
+			<span class="s">&#39;hint&#39;</span> <span class="p">:</span> <span class="s">&quot;Try setting the PGINSTALLATION &quot;</span> \
+			<span class="s">&quot;environment variable to the `pg_config` path&quot;</span>
+		<span class="p">}</span>
+	<span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">return</span>
+		<span class="c">##</span>
+		<span class="c"># Hasn&#39;t been created yet, but doesn&#39;t matter.</span>
+		<span class="c"># On exit, obliterate the cluster directory.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_init_pid_</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span>
+		<span class="n">atexit</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">destroy</span><span class="p">)</span>
+
+		<span class="c"># [$HOME|.]/.pg_tmpdb_{pid}</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cluster_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+			<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;HOME&#39;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">()),</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">cluster_dirname</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_init_pid_</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">local_id</span><span class="p">)</span>
+		<span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">logfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cluster_path</span><span class="p">,</span> <span class="s">&#39;logfile&#39;</span><span class="p">)</span>
+		<span class="n">installation</span> <span class="o">=</span> <span class="n">installation_factory</span><span class="p">()</span>
+		<span class="k">if</span> <span class="n">installation</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="n">ClusterError</span><span class="p">(</span>
+				<span class="s">&#39;could not find the default pg_config&#39;</span><span class="p">,</span> <span class="n">details</span> <span class="o">=</span> <span class="n">inshint</span>
+			<span class="p">)</span>
+
+		<span class="n">cluster</span> <span class="o">=</span> <span class="n">Cluster</span><span class="p">(</span><span class="n">installation</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster_path</span><span class="p">,)</span>
+
+		<span class="c"># If it exists already, destroy it.</span>
+		<span class="k">if</span> <span class="n">cluster</span><span class="o">.</span><span class="n">initialized</span><span class="p">():</span>
+			<span class="n">cluster</span><span class="o">.</span><span class="n">drop</span><span class="p">()</span>
+		<span class="n">cluster</span><span class="o">.</span><span class="n">encoding</span> <span class="o">=</span> <span class="s">&#39;utf-8&#39;</span>
+		<span class="n">cluster</span><span class="o">.</span><span class="n">init</span><span class="p">(</span>
+			<span class="n">user</span> <span class="o">=</span> <span class="s">&#39;test&#39;</span><span class="p">,</span> <span class="c"># Consistent username.</span>
+			<span class="n">encoding</span> <span class="o">=</span> <span class="n">cluster</span><span class="o">.</span><span class="n">encoding</span><span class="p">,</span>
+			<span class="n">logfile</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="p">)</span>
+
+		<span class="c"># Configure</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cluster_port</span> <span class="o">=</span> <span class="n">find_available_port</span><span class="p">()</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster_port</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="n">ClusterError</span><span class="p">(</span>
+				<span class="s">&#39;could not find a port for the test cluster on localhost&#39;</span><span class="p">,</span>
+				<span class="n">creator</span> <span class="o">=</span> <span class="n">cluster</span>
+			<span class="p">)</span>
+
+		<span class="n">cluster</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span>
+			<span class="n">port</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cluster_port</span><span class="p">),</span>
+			<span class="n">max_connections</span> <span class="o">=</span> <span class="s">&#39;20&#39;</span><span class="p">,</span>
+			<span class="n">shared_buffers</span> <span class="o">=</span> <span class="s">&#39;200&#39;</span><span class="p">,</span>
+			<span class="n">listen_addresses</span> <span class="o">=</span> <span class="s">&#39;localhost&#39;</span><span class="p">,</span>
+			<span class="n">log_destination</span> <span class="o">=</span> <span class="s">&#39;stderr&#39;</span><span class="p">,</span>
+			<span class="n">log_min_messages</span> <span class="o">=</span> <span class="s">&#39;FATAL&#39;</span><span class="p">,</span>
+			<span class="n">unix_socket_directory</span> <span class="o">=</span> <span class="n">cluster</span><span class="o">.</span><span class="n">data_directory</span><span class="p">,</span>
+		<span class="p">))</span>
+		<span class="n">cluster</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span>
+			<span class="n">max_prepared_transactions</span> <span class="o">=</span> <span class="s">&#39;10&#39;</span><span class="p">,</span>
+		<span class="p">))</span>
+
+		<span class="c"># Start it up.</span>
+		<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">logfile</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">lfo</span><span class="p">:</span>
+			<span class="n">cluster</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">logfile</span> <span class="o">=</span> <span class="n">lfo</span><span class="p">)</span>
+		<span class="n">cluster</span><span class="o">.</span><span class="n">wait_until_started</span><span class="p">()</span>
+
+		<span class="c"># Initialize template1 and the test user database.</span>
+		<span class="n">c</span> <span class="o">=</span> <span class="n">cluster</span><span class="o">.</span><span class="n">connection</span><span class="p">(</span><span class="n">user</span> <span class="o">=</span> <span class="s">&#39;test&#39;</span><span class="p">,</span> <span class="n">database</span> <span class="o">=</span> <span class="s">&#39;template1&#39;</span><span class="p">,)</span>
+		<span class="k">with</span> <span class="n">c</span><span class="p">:</span>
+			<span class="n">c</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&#39;create database test&#39;</span><span class="p">)</span>
+		<span class="c"># It&#39;s ready.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cluster</span> <span class="o">=</span> <span class="n">cluster</span>
+
+	<span class="k">def</span> <span class="nf">push</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">c</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster</span><span class="o">.</span><span class="n">connection</span><span class="p">(</span><span class="n">user</span> <span class="o">=</span> <span class="s">&#39;test&#39;</span><span class="p">)</span>
+		<span class="n">c</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+		<span class="n">extras</span> <span class="o">=</span> <span class="p">[]</span>
+
+		<span class="k">def</span> <span class="nf">new_pg_tmp_connection</span><span class="p">(</span><span class="n">l</span> <span class="o">=</span> <span class="n">extras</span><span class="p">,</span> <span class="n">c</span> <span class="o">=</span> <span class="n">c</span><span class="p">,</span> <span class="n">sbid</span> <span class="o">=</span> <span class="s">&#39;sandbox&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sandbox_id</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)):</span>
+			<span class="c"># Used to create a new connection that will be closed</span>
+			<span class="c"># when the context stack is popped along with &#39;db&#39;.</span>
+			<span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">clone</span><span class="p">())</span>
+			<span class="n">l</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&#39;search_path&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">sbid</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39;,&#39;</span> <span class="o">+</span> <span class="n">l</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&#39;search_path&#39;</span><span class="p">]</span>
+			<span class="k">return</span> <span class="n">l</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+		<span class="c"># The new builtins.</span>
+		<span class="n">builtins</span> <span class="o">=</span> <span class="p">{</span>
+			<span class="s">&#39;db&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="p">,</span>
+			<span class="s">&#39;prepare&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="o">.</span><span class="n">prepare</span><span class="p">,</span>
+			<span class="s">&#39;xact&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="o">.</span><span class="n">xact</span><span class="p">,</span>
+			<span class="s">&#39;sqlexec&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="o">.</span><span class="n">execute</span><span class="p">,</span>
+			<span class="s">&#39;do&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="o">.</span><span class="n">do</span><span class="p">,</span>
+			<span class="s">&#39;settings&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="o">.</span><span class="n">settings</span><span class="p">,</span>
+			<span class="s">&#39;proc&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="o">.</span><span class="n">proc</span><span class="p">,</span>
+			<span class="s">&#39;connector&#39;</span> <span class="p">:</span> <span class="n">c</span><span class="o">.</span><span class="n">connector</span><span class="p">,</span>
+			<span class="s">&#39;new&#39;</span> <span class="p">:</span> <span class="n">new_pg_tmp_connection</span><span class="p">,</span>
+		<span class="p">}</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span><span class="p">:</span>
+			<span class="c"># Store any of those set or not set.</span>
+			<span class="n">current</span> <span class="o">=</span> <span class="p">{</span>
+				<span class="n">k</span> <span class="p">:</span> <span class="n">__builtins__</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">builtins_keys</span>
+				<span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">__builtins__</span>
+			<span class="p">}</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">current</span><span class="p">,</span> <span class="p">[]))</span>
+
+		<span class="c"># Store and push.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">builtins</span><span class="p">,</span> <span class="n">extras</span><span class="p">))</span>
+		<span class="n">__builtins__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">builtins</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">sandbox_id</span> <span class="o">+=</span> <span class="mi">1</span>
+
+	<span class="k">def</span> <span class="nf">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">drop_schema</span> <span class="o">=</span> <span class="s">&#39;DROP SCHEMA sandbox{0} CASCADE&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">):</span>
+		<span class="n">builtins</span><span class="p">,</span> <span class="n">extras</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">sandbox_id</span> <span class="o">-=</span> <span class="mi">1</span>
+
+		<span class="c"># restore __builtins__</span>
+		<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+			<span class="n">__builtins__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">previous</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">builtins_stack</span><span class="o">.</span><span class="n">popleft</span><span class="p">()</span>
+			<span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">builtins_keys</span><span class="p">:</span>
+				<span class="k">if</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">previous</span><span class="p">:</span>
+					<span class="n">__builtins__</span><span class="p">[</span><span class="n">x</span><span class="p">]</span> <span class="o">=</span> <span class="n">previous</span><span class="p">[</span><span class="n">x</span><span class="p">]</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="c"># Wasn&#39;t set before.</span>
+					<span class="n">__builtins__</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+		<span class="c"># close popped connection, but only if we&#39;re not in an interrupt.</span>
+		<span class="c"># However, temporal will always terminate all backends atexit.</span>
+		<span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+			<span class="c"># Interrupt then close. Just in case something is lingering.</span>
+			<span class="k">for</span> <span class="n">xdb</span> <span class="ow">in</span> <span class="p">[</span><span class="n">builtins</span><span class="p">[</span><span class="s">&#39;db&#39;</span><span class="p">]]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">extras</span><span class="p">):</span>
+				<span class="k">if</span> <span class="n">xdb</span><span class="o">.</span><span class="n">closed</span> <span class="ow">is</span> <span class="bp">False</span><span class="p">:</span>
+					<span class="c"># In order for a clean close of the connection,</span>
+					<span class="c"># interrupt before closing. It is still</span>
+					<span class="c"># possible for the close to block, but less likely.</span>
+					<span class="n">xdb</span><span class="o">.</span><span class="n">interrupt</span><span class="p">()</span>
+				<span class="n">xdb</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+			<span class="c"># Interrupted and closed all the other connections at this level;</span>
+			<span class="c"># now remove the sandbox schema.</span>
+			<span class="n">c</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster</span><span class="o">.</span><span class="n">connection</span><span class="p">(</span><span class="n">user</span> <span class="o">=</span> <span class="s">&#39;test&#39;</span><span class="p">)</span>
+			<span class="k">with</span> <span class="n">c</span><span class="p">:</span>
+				<span class="c"># Use a new connection so that the state of</span>
+				<span class="c"># the context connection will not have to be</span>
+				<span class="c"># contended with.</span>
+				<span class="n">c</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">drop_schema</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sandbox_id</span><span class="o">+</span><span class="mi">1</span><span class="p">))</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="c"># interrupt</span>
+			<span class="k">pass</span>
+
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">init</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">()</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">db</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+			<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&#39;CREATE SCHEMA sandbox&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sandbox_id</span><span class="p">))</span>
+			<span class="n">db</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&#39;search_path&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;sandbox&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sandbox_id</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39;,&#39;</span> <span class="o">+</span> <span class="n">db</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&#39;search_path&#39;</span><span class="p">]</span>
+		<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+			<span class="c"># failed to initialize sandbox schema; pop it.</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+			<span class="k">raise</span>
+
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cluster</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+
+<span class="c">#: The process&#39; temporary cluster.</span></div>
+<span class="n">pg_tmp</span> <span class="o">=</span> <span class="n">Temporal</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" >postgresql</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

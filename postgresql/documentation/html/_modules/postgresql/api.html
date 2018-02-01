@@ -1,0 +1,1520 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>postgresql.api &mdash; py-postgresql 1.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="py-postgresql 1.1.0 documentation" href="../../index.html" />
+    <link rel="up" title="postgresql" href="../postgresql.html" />
+ 
+<link rel="stylesheet" href="_static/unsuck.css" type="text/css" />
+
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" accesskey="U">postgresql</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for postgresql.api</h1><div class="highlight"><pre>
+<span class="c">##</span>
+<span class="c"># .api - ABCs for database interface elements</span>
+<span class="c">##</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Application Programmer Interfaces for PostgreSQL.</span>
+
+<span class="sd">``postgresql.api`` is a collection of Python APIs for the PostgreSQL DBMS. It</span>
+<span class="sd">is designed to take full advantage of PostgreSQL&#39;s features to provide the</span>
+<span class="sd">Python programmer with substantial convenience.</span>
+
+<span class="sd">This module is used to define &quot;PG-API&quot;. It creates a set of ABCs</span>
+<span class="sd">that makes up the basic interfaces used to work with a PostgreSQL server.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">import</span> <span class="nn">abc</span>
+
+<span class="kn">from</span> <span class="nn">.python.element</span> <span class="kn">import</span> <span class="n">Element</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+	<span class="s">&#39;Message&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Statement&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Chunks&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Cursor&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Connector&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Category&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Database&#39;</span><span class="p">,</span>
+	<span class="s">&#39;TypeIO&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Connection&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Transaction&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Settings&#39;</span><span class="p">,</span>
+	<span class="s">&#39;StoredProcedure&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Driver&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Installation&#39;</span><span class="p">,</span>
+	<span class="s">&#39;Cluster&#39;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<div class="viewcode-block" id="Message"><a class="viewcode-back" href="../../reference.html#postgresql.api.Message">[docs]</a><span class="k">class</span> <span class="nc">Message</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A message emitted by PostgreSQL.</span>
+<span class="sd">	A message being a NOTICE, WARNING, INFO, etc.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;MESSAGE&#39;</span>
+
+	<span class="n">severities</span> <span class="o">=</span> <span class="p">(</span>
+		<span class="s">&#39;DEBUG&#39;</span><span class="p">,</span>
+		<span class="s">&#39;INFO&#39;</span><span class="p">,</span>
+		<span class="s">&#39;NOTICE&#39;</span><span class="p">,</span>
+		<span class="s">&#39;WARNING&#39;</span><span class="p">,</span>
+		<span class="s">&#39;ERROR&#39;</span><span class="p">,</span>
+		<span class="s">&#39;FATAL&#39;</span><span class="p">,</span>
+		<span class="s">&#39;PANIC&#39;</span><span class="p">,</span>
+	<span class="p">)</span>
+	<span class="n">sources</span> <span class="o">=</span> <span class="p">(</span>
+		<span class="s">&#39;SERVER&#39;</span><span class="p">,</span>
+		<span class="s">&#39;CLIENT&#39;</span><span class="p">,</span>
+	<span class="p">)</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Message.source"><a class="viewcode-back" href="../../reference.html#postgresql.api.Message.source">[docs]</a>	<span class="k">def</span> <span class="nf">source</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Where the message originated from. Normally, &#39;SERVER&#39;, but sometimes</span>
+<span class="sd">		&#39;CLIENT&#39;.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Message.code"><a class="viewcode-back" href="../../reference.html#postgresql.api.Message.code">[docs]</a>	<span class="k">def</span> <span class="nf">code</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The SQL state code of the message.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Message.message"><a class="viewcode-back" href="../../reference.html#postgresql.api.Message.message">[docs]</a>	<span class="k">def</span> <span class="nf">message</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The primary message string.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Message.details"><a class="viewcode-back" href="../../reference.html#postgresql.api.Message.details">[docs]</a>	<span class="k">def</span> <span class="nf">details</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The additional details given with the message. Common keys *should* be the</span>
+<span class="sd">		following:</span>
+
+<span class="sd">		 * &#39;severity&#39;</span>
+<span class="sd">		 * &#39;context&#39;</span>
+<span class="sd">		 * &#39;detail&#39;</span>
+<span class="sd">		 * &#39;hint&#39;</span>
+<span class="sd">		 * &#39;file&#39;</span>
+<span class="sd">		 * &#39;line&#39;</span>
+<span class="sd">		 * &#39;function&#39;</span>
+<span class="sd">		 * &#39;position&#39;</span>
+<span class="sd">		 * &#39;internal_position&#39;</span>
+<span class="sd">		 * &#39;internal_query&#39;</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Message.isconsistent"><a class="viewcode-back" href="../../reference.html#postgresql.api.Message.isconsistent">[docs]</a>	<span class="k">def</span> <span class="nf">isconsistent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Whether the fields of the `other` Message object is consistent with the</span>
+<span class="sd">		fields of `self`.</span>
+
+<span class="sd">		This *must* return the result of the comparison of code, source, message,</span>
+<span class="sd">		and details.</span>
+
+<span class="sd">		This method is provided as the alternative to overriding equality;</span>
+<span class="sd">		often, pointer equality is the desirable means for comparison, but</span>
+<span class="sd">		equality of the fields is also necessary.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div></div>
+<span class="k">class</span> <span class="nc">Result</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A result is an object managing the results of a prepared statement.</span>
+
+<span class="sd">	These objects represent a binding of parameters to a given statement object.</span>
+
+<span class="sd">	For results that were constructed on the server and a reference passed back</span>
+<span class="sd">	to the client, statement and parameters may be None.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;RESULT&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;statement&#39;</span><span class="p">,</span> <span class="s">&#39;parameters&#39;</span><span class="p">,</span> <span class="s">&#39;cursor_id&#39;</span><span class="p">)</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Close the Result handle.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">cursor_id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The cursor&#39;s identifier.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">sql_column_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The type of the columns produced by the cursor.</span>
+
+<span class="sd">		A sequence of `str` objects stating the SQL type name::</span>
+
+<span class="sd">			[&#39;INTEGER&#39;, &#39;CHARACTER VARYING&#39;, &#39;INTERVAL&#39;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">pg_column_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The type Oids of the columns produced by the cursor.</span>
+
+<span class="sd">		A sequence of `int` objects stating the SQL type name::</span>
+
+<span class="sd">			[27, 28]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">column_names</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The attribute names of the columns produced by the cursor.</span>
+
+<span class="sd">		A sequence of `str` objects stating the column name::</span>
+
+<span class="sd">			[&#39;column1&#39;, &#39;column2&#39;, &#39;emp_name&#39;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">column_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The Python types of the columns produced by the cursor.</span>
+
+<span class="sd">		A sequence of type objects::</span>
+
+<span class="sd">			[&lt;class &#39;int&#39;&gt;, &lt;class &#39;str&#39;&gt;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The parameters bound to the cursor. `None`, if unknown and an empty tuple</span>
+<span class="sd">		`()`, if no parameters were given.</span>
+
+<span class="sd">		These should be the *original* parameters given to the invoked statement.</span>
+
+<span class="sd">		This should only be `None` when the cursor is created from an identifier,</span>
+<span class="sd">		`postgresql.api.Database.cursor_from_id`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">statement</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="s">&quot;Statement&quot;</span><span class="p">,</span> <span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The query object used to create the cursor. `None`, if unknown.</span>
+
+<span class="sd">		This should only be `None` when the cursor is created from an identifier,</span>
+<span class="sd">		`postgresql.api.Database.cursor_from_id`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+<span class="k">class</span> <span class="nc">Chunks</span><span class="p">(</span>
+	<span class="n">Result</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">Iterator</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">,</span>
+<span class="p">):</span>
+	<span class="k">pass</span>
+
+<div class="viewcode-block" id="Cursor"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cursor">[docs]</a><span class="k">class</span> <span class="nc">Cursor</span><span class="p">(</span>
+	<span class="n">Result</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">Iterator</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">,</span>
+<span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A `Cursor` object is an interface to a sequence of tuples(rows). A result</span>
+<span class="sd">	set. Cursors publish a file-like interface for reading tuples from a cursor</span>
+<span class="sd">	declared on the database.</span>
+
+<span class="sd">	`Cursor` objects are created by invoking the `Statement.declare`</span>
+<span class="sd">	method or by opening a cursor using an identifier via the</span>
+<span class="sd">	`Database.cursor_from_id` method.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;CURSOR&#39;</span>
+
+	<span class="n">_seek_whence_map</span> <span class="o">=</span> <span class="p">{</span>
+		<span class="mi">0</span> <span class="p">:</span> <span class="s">&#39;ABSOLUTE&#39;</span><span class="p">,</span>
+		<span class="mi">1</span> <span class="p">:</span> <span class="s">&#39;RELATIVE&#39;</span><span class="p">,</span>
+		<span class="mi">2</span> <span class="p">:</span> <span class="s">&#39;FROM_END&#39;</span><span class="p">,</span>
+		<span class="mi">3</span> <span class="p">:</span> <span class="s">&#39;FORWARD&#39;</span><span class="p">,</span>
+		<span class="mi">4</span> <span class="p">:</span> <span class="s">&#39;BACKWARD&#39;</span>
+	<span class="p">}</span>
+	<span class="n">_direction_map</span> <span class="o">=</span> <span class="p">{</span>
+		<span class="bp">True</span> <span class="p">:</span> <span class="s">&#39;FORWARD&#39;</span><span class="p">,</span>
+		<span class="bp">False</span> <span class="p">:</span> <span class="s">&#39;BACKWARD&#39;</span><span class="p">,</span>
+	<span class="p">}</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cursor.clone"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cursor.clone">[docs]</a>	<span class="k">def</span> <span class="nf">clone</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s">&quot;Cursor&quot;</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a new cursor using the same factors as `self`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="bp">self</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cursor.direction"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cursor.direction">[docs]</a>	<span class="k">def</span> <span class="nf">direction</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The default `direction` argument for read().</span>
+
+<span class="sd">		When `True` reads are FORWARD.</span>
+<span class="sd">		When `False` reads are BACKWARD.</span>
+
+<span class="sd">		Cursor operation option.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cursor.read"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cursor.read">[docs]</a>	<span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">quantity</span> <span class="p">:</span> <span class="s">&quot;Number of rows to read&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">direction</span> <span class="p">:</span> <span class="s">&quot;Direction to fetch in, defaults to `self.direction`&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+	<span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="s">&quot;Row&quot;</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Read, fetch, the specified number of rows and return them in a list.</span>
+<span class="sd">		If quantity is `None`, all records will be fetched.</span>
+
+<span class="sd">		`direction` can be used to override the default configured direction.</span>
+
+<span class="sd">		This alters the cursor&#39;s position.</span>
+
+<span class="sd">		Read does not directly correlate to FETCH. If zero is given as the</span>
+<span class="sd">		quantity, an empty sequence *must* be returned.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s">&quot;Row&quot;</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Get the next tuple in the cursor.</span>
+<span class="sd">		Advances the cursor position by one.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cursor.seek"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cursor.seek">[docs]</a>	<span class="k">def</span> <span class="nf">seek</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">whence</span> <span class="o">=</span> <span class="s">&#39;ABSOLUTE&#39;</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Set the cursor&#39;s position to the given offset with respect to the</span>
+<span class="sd">		whence parameter and the configured direction.</span>
+
+<span class="sd">		Whence values:</span>
+
+<span class="sd">		 ``0`` or ``&quot;ABSOLUTE&quot;``</span>
+<span class="sd">		  Absolute.</span>
+<span class="sd">		 ``1`` or ``&quot;RELATIVE&quot;``</span>
+<span class="sd">		  Relative.</span>
+<span class="sd">		 ``2`` or ``&quot;FROM_END&quot;``</span>
+<span class="sd">		  Absolute from end.</span>
+<span class="sd">		 ``3`` or ``&quot;FORWARD&quot;``</span>
+<span class="sd">		  Relative forward.</span>
+<span class="sd">		 ``4`` or ``&quot;BACKWARD&quot;``</span>
+<span class="sd">		  Relative backward.</span>
+
+<span class="sd">		Direction effects whence. If direction is BACKWARD, ABSOLUTE positioning</span>
+<span class="sd">		will effectively be FROM_END, RELATIVE&#39;s position will be negated, and</span>
+<span class="sd">		FROM_END will effectively be ABSOLUTE.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div></div>
+<span class="k">class</span> <span class="nc">Execution</span><span class="p">(</span><span class="n">metaclass</span> <span class="o">=</span> <span class="n">abc</span><span class="o">.</span><span class="n">ABCMeta</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	The abstract class of execution methods.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span> <span class="p">:</span> <span class="s">&quot;Positional Parameters&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="s">&quot;Row&quot;</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Execute the prepared statement with the given arguments as parameters.</span>
+
+<span class="sd">		Usage:</span>
+
+<span class="sd">		&gt;&gt;&gt; p=db.prepare(&quot;SELECT column FROM ttable WHERE key = $1&quot;)</span>
+<span class="sd">		&gt;&gt;&gt; p(&#39;identifier&#39;)</span>
+<span class="sd">		[...]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">column</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator producing the values of first column of the</span>
+<span class="sd">		rows produced by the cursor created from the statement bound with the</span>
+<span class="sd">		given parameters.</span>
+
+<span class="sd">		Column iterators are never scrollable.</span>
+
+<span class="sd">		Supporting cursors will be WITH HOLD when outside of a transaction to</span>
+<span class="sd">		allow cross-transaction access.</span>
+
+<span class="sd">		`column` is designed for the situations involving large data sets.</span>
+
+<span class="sd">		Each iteration returns a single value.</span>
+
+<span class="sd">		column expressed in sibling terms::</span>
+
+<span class="sd">			return map(operator.itemgetter(0), self.rows(*parameters))</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">chunks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator producing sequences of rows produced by the cursor</span>
+<span class="sd">		created from the statement bound with the given parameters.</span>
+
+<span class="sd">		Chunking iterators are *never* scrollable.</span>
+
+<span class="sd">		Supporting cursors will be WITH HOLD when outside of a transaction.</span>
+
+<span class="sd">		`chunks` is designed for moving large data sets efficiently.</span>
+
+<span class="sd">		Each iteration returns sequences of rows *normally* of length(seq) ==</span>
+<span class="sd">		chunksize. If chunksize is unspecified, a default, positive integer will</span>
+<span class="sd">		be filled in. The rows contained in the sequences are only required to</span>
+<span class="sd">		support the basic `collections.Sequence` interfaces; simple and quick</span>
+<span class="sd">		sequence types should be used.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">rows</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator producing rows produced by the cursor</span>
+<span class="sd">		created from the statement bound with the given parameters.</span>
+
+<span class="sd">		Row iterators are never scrollable.</span>
+
+<span class="sd">		Supporting cursors will be WITH HOLD when outside of a transaction to</span>
+<span class="sd">		allow cross-transaction access.</span>
+
+<span class="sd">		`rows` is designed for the situations involving large data sets.</span>
+
+<span class="sd">		Each iteration returns a single row. Arguably, best implemented::</span>
+
+<span class="sd">			return itertools.chain.from_iterable(self.chunks(*parameters))</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">column</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator producing the values of the first column in</span>
+<span class="sd">		the cursor created from the statement bound with the given parameters.</span>
+
+<span class="sd">		Column iterators are never scrollable.</span>
+
+<span class="sd">		Supporting cursors will be WITH HOLD when outside of a transaction to</span>
+<span class="sd">		allow cross-transaction access.</span>
+
+<span class="sd">		`column` is designed for the situations involving large data sets.</span>
+
+<span class="sd">		Each iteration returns a single value. `column` is equivalent to::</span>
+
+<span class="sd">			return map(operator.itemgetter(0), self.rows(*parameters))</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">declare</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Cursor</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return a scrollable cursor with hold using the statement bound with the</span>
+<span class="sd">		given parameters.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">first</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">parameters</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s">&quot;&#39;First&#39; object that is returned by the query&quot;</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Execute the prepared statement with the given arguments as parameters.</span>
+<span class="sd">		If the statement returns rows with multiple columns, return the first</span>
+<span class="sd">		row. If the statement returns rows with a single column, return the</span>
+<span class="sd">		first column in the first row. If the query does not return rows at all,</span>
+<span class="sd">		return the count or `None` if no count exists in the completion message.</span>
+
+<span class="sd">		Usage:</span>
+
+<span class="sd">		&gt;&gt;&gt; db.prepare(&quot;SELECT * FROM ttable WHERE key = $1&quot;).first(&quot;somekey&quot;)</span>
+<span class="sd">		(&#39;somekey&#39;, &#39;somevalue&#39;)</span>
+<span class="sd">		&gt;&gt;&gt; db.prepare(&quot;SELECT &#39;foo&#39;&quot;).first()</span>
+<span class="sd">		&#39;foo&#39;</span>
+<span class="sd">		&gt;&gt;&gt; db.prepare(&quot;INSERT INTO atable (col) VALUES (1)&quot;).first()</span>
+<span class="sd">		1</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">load_rows</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">iterable</span> <span class="p">:</span> <span class="s">&quot;A iterable of tuples to execute the statement with&quot;</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Given an iterable, `iterable`, feed the produced parameters to the</span>
+<span class="sd">		query. This is a bulk-loading interface for parameterized queries.</span>
+
+<span class="sd">		Effectively, it is equivalent to:</span>
+
+<span class="sd">			&gt;&gt;&gt; q = db.prepare(sql)</span>
+<span class="sd">			&gt;&gt;&gt; for i in iterable:</span>
+<span class="sd">			...  q(*i)</span>
+
+<span class="sd">		Its purpose is to allow the implementation to take advantage of the</span>
+<span class="sd">		knowledge that a series of parameters are to be loaded so that the</span>
+<span class="sd">		operation can be optimized.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">load_chunks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">iterable</span> <span class="p">:</span> <span class="s">&quot;A iterable of chunks of tuples to execute the statement with&quot;</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Given an iterable, `iterable`, feed the produced parameters of the chunks</span>
+<span class="sd">		produced by the iterable to the query. This is a bulk-loading interface</span>
+<span class="sd">		for parameterized queries.</span>
+
+<span class="sd">		Effectively, it is equivalent to:</span>
+
+<span class="sd">			&gt;&gt;&gt; ps = db.prepare(...)</span>
+<span class="sd">			&gt;&gt;&gt; for c in iterable:</span>
+<span class="sd">			...  for i in c:</span>
+<span class="sd">			...   q(*i)</span>
+
+<span class="sd">		Its purpose is to allow the implementation to take advantage of the</span>
+<span class="sd">		knowledge that a series of chunks of parameters are to be loaded so</span>
+<span class="sd">		that the operation can be optimized.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="Statement"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement">[docs]</a><span class="k">class</span> <span class="nc">Statement</span><span class="p">(</span>
+	<span class="n">Element</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">Callable</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">,</span>
+<span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Instances of `Statement` are returned by the `prepare` method of</span>
+<span class="sd">	`Database` instances.</span>
+
+<span class="sd">	A Statement is an Iterable as well as Callable.</span>
+
+<span class="sd">	The Iterable interface is supported for queries that take no arguments at</span>
+<span class="sd">	all. It allows the syntax::</span>
+
+<span class="sd">		&gt;&gt;&gt; for x in db.prepare(&#39;select * FROM table&#39;):</span>
+<span class="sd">		...  pass</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;STATEMENT&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;database&#39;</span><span class="p">,</span> <span class="s">&#39;statement_id&#39;</span><span class="p">,</span> <span class="s">&#39;string&#39;</span><span class="p">,)</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.statement_id"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.statement_id">[docs]</a>	<span class="k">def</span> <span class="nf">statement_id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The statment&#39;s identifier.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.string"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.string">[docs]</a>	<span class="k">def</span> <span class="nf">string</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The SQL string of the prepared statement.</span>
+
+<span class="sd">		`None` if not available. This can happen in cases where a statement is</span>
+<span class="sd">		prepared on the server and a reference to the statement is sent to the</span>
+<span class="sd">		client which subsequently uses the statement via the `Database`&#39;s</span>
+<span class="sd">		`statement` constructor.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.sql_parameter_types"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.sql_parameter_types">[docs]</a>	<span class="k">def</span> <span class="nf">sql_parameter_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The type of the parameters required by the statement.</span>
+
+<span class="sd">		A sequence of `str` objects stating the SQL type name::</span>
+
+<span class="sd">			[&#39;INTEGER&#39;, &#39;VARCHAR&#39;, &#39;INTERVAL&#39;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.sql_column_types"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.sql_column_types">[docs]</a>	<span class="k">def</span> <span class="nf">sql_column_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The type of the columns produced by the statement.</span>
+
+<span class="sd">		A sequence of `str` objects stating the SQL type name::</span>
+
+<span class="sd">			[&#39;INTEGER&#39;, &#39;VARCHAR&#39;, &#39;INTERVAL&#39;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.pg_parameter_types"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.pg_parameter_types">[docs]</a>	<span class="k">def</span> <span class="nf">pg_parameter_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The type Oids of the parameters required by the statement.</span>
+
+<span class="sd">		A sequence of `int` objects stating the PostgreSQL type Oid::</span>
+
+<span class="sd">			[27, 28]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.pg_column_types"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.pg_column_types">[docs]</a>	<span class="k">def</span> <span class="nf">pg_column_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The type Oids of the columns produced by the statement.</span>
+
+<span class="sd">		A sequence of `int` objects stating the SQL type name::</span>
+
+<span class="sd">			[27, 28]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.column_names"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.column_names">[docs]</a>	<span class="k">def</span> <span class="nf">column_names</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The attribute names of the columns produced by the statement.</span>
+
+<span class="sd">		A sequence of `str` objects stating the column name::</span>
+
+<span class="sd">			[&#39;column1&#39;, &#39;column2&#39;, &#39;emp_name&#39;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.column_types"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.column_types">[docs]</a>	<span class="k">def</span> <span class="nf">column_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">type</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The Python types of the columns produced by the statement.</span>
+
+<span class="sd">		A sequence of type objects::</span>
+
+<span class="sd">			[&lt;class &#39;int&#39;&gt;, &lt;class &#39;str&#39;&gt;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.parameter_types"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.parameter_types">[docs]</a>	<span class="k">def</span> <span class="nf">parameter_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="nb">type</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The Python types expected of parameters given to the statement.</span>
+
+<span class="sd">		A sequence of type objects::</span>
+
+<span class="sd">			[&lt;class &#39;int&#39;&gt;, &lt;class &#39;str&#39;&gt;]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.clone"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.clone">[docs]</a>	<span class="k">def</span> <span class="nf">clone</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s">&quot;Statement&quot;</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a new statement object using the same factors as `self`.</span>
+
+<span class="sd">		When used for refreshing plans, the new clone should replace references to</span>
+<span class="sd">		the original.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Statement.close"><a class="viewcode-back" href="../../reference.html#postgresql.api.Statement.close">[docs]</a>	<span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Close the prepared statement releasing resources associated with it.</span>
+<span class="sd">		&quot;&quot;&quot;</span></div></div>
+<span class="n">Execution</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Statement</span><span class="p">)</span>
+<span class="n">PreparedStatement</span> <span class="o">=</span> <span class="n">Statement</span>
+
+<div class="viewcode-block" id="StoredProcedure"><a class="viewcode-back" href="../../reference.html#postgresql.api.StoredProcedure">[docs]</a><span class="k">class</span> <span class="nc">StoredProcedure</span><span class="p">(</span>
+	<span class="n">Element</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">Callable</span><span class="p">,</span>
+<span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A function stored on the database.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;FUNCTION&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;database&#39;</span><span class="p">,)</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">Cursor</span><span class="p">,</span> <span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Execute the procedure with the given arguments. If keyword arguments are</span>
+<span class="sd">		passed they must be mapped to the argument whose name matches the key.</span>
+<span class="sd">		If any positional arguments are given, they must fill in gaps created by</span>
+<span class="sd">		the stated keyword arguments. If too few or too many arguments are</span>
+<span class="sd">		given, a TypeError must be raised. If a keyword argument is passed where</span>
+<span class="sd">		the procedure does not have a corresponding argument name, then,</span>
+<span class="sd">		likewise, a TypeError must be raised.</span>
+
+<span class="sd">		In the case where the `StoredProcedure` references a set returning</span>
+<span class="sd">		function(SRF), the result *must* be an iterable. SRFs that return single</span>
+<span class="sd">		columns *must* return an iterable of that column; not row data. If the</span>
+<span class="sd">		SRF returns a composite(OUT parameters), it *should* return a `Cursor`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+<span class="c">##</span>
+<span class="c"># Arguably, it would be wiser to isolate blocks, and savepoints, but the utility</span>
+<span class="c"># of the separation is not significant. It&#39;s really</span>
+<span class="c"># more interesting as a formality that the user may explicitly state the</span>
+<span class="c"># type of the transaction. However, this capability is not completely absent</span>
+<span class="c"># from the current interface as the configuration parameters, or lack thereof,</span>
+<span class="c"># help imply the expectations.</span></div>
+<div class="viewcode-block" id="Transaction"><a class="viewcode-back" href="../../reference.html#postgresql.api.Transaction">[docs]</a><span class="k">class</span> <span class="nc">Transaction</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A `Tranaction` is an element that represents a transaction in the session.</span>
+<span class="sd">	Once created, it&#39;s ready to be started, and subsequently committed or</span>
+<span class="sd">	rolled back.</span>
+
+<span class="sd">	Read-only transaction:</span>
+
+<span class="sd">		&gt;&gt;&gt; with db.xact(mode = &#39;read only&#39;):</span>
+<span class="sd">		...  ...</span>
+
+<span class="sd">	Read committed isolation:</span>
+
+<span class="sd">		&gt;&gt;&gt; with db.xact(isolation = &#39;READ COMMITTED&#39;):</span>
+<span class="sd">		...  ...</span>
+
+<span class="sd">	Savepoints are created if inside a transaction block:</span>
+
+<span class="sd">		&gt;&gt;&gt; with db.xact():</span>
+<span class="sd">		...  with db.xact():</span>
+<span class="sd">		...   ...</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;XACT&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;database&#39;</span><span class="p">,)</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Transaction.mode"><a class="viewcode-back" href="../../reference.html#postgresql.api.Transaction.mode">[docs]</a>	<span class="k">def</span> <span class="nf">mode</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The mode of the transaction block:</span>
+
+<span class="sd">			START TRANSACTION [ISOLATION] &lt;mode&gt;;</span>
+
+<span class="sd">		The `mode` property is a string and will be directly interpolated into the</span>
+<span class="sd">		START TRANSACTION statement.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Transaction.isolation"><a class="viewcode-back" href="../../reference.html#postgresql.api.Transaction.isolation">[docs]</a>	<span class="k">def</span> <span class="nf">isolation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The isolation level of the transaction block:</span>
+
+<span class="sd">			START TRANSACTION &lt;isolation&gt; [MODE];</span>
+
+<span class="sd">		The `isolation` property is a string and will be directly interpolated into</span>
+<span class="sd">		the START TRANSACTION statement.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Transaction.start"><a class="viewcode-back" href="../../reference.html#postgresql.api.Transaction.start">[docs]</a>	<span class="k">def</span> <span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Start the transaction.</span>
+
+<span class="sd">		If the database is in a transaction block, the transaction should be</span>
+<span class="sd">		configured as a savepoint. If any transaction block configuration was</span>
+<span class="sd">		applied to the transaction, raise a `postgresql.exceptions.OperationError`.</span>
+
+<span class="sd">		If the database is not in a transaction block, start one using the</span>
+<span class="sd">		configuration where:</span>
+
+<span class="sd">		`self.isolation` specifies the ``ISOLATION LEVEL``. Normally, ``READ</span>
+<span class="sd">		COMMITTED``, ``SERIALIZABLE``, or ``READ UNCOMMITTED``.</span>
+
+<span class="sd">		`self.mode` specifies the mode of the transaction. Normally, ``READ</span>
+<span class="sd">		ONLY`` or ``READ WRITE``.</span>
+
+<span class="sd">		If the transaction is already open, do nothing.</span>
+
+<span class="sd">		If the transaction has been committed or aborted, raise an</span>
+<span class="sd">		`postgresql.exceptions.OperationError`.</span>
+<span class="sd">		&quot;&quot;&quot;</span></div>
+	<span class="n">begin</span> <span class="o">=</span> <span class="n">start</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Transaction.commit"><a class="viewcode-back" href="../../reference.html#postgresql.api.Transaction.commit">[docs]</a>	<span class="k">def</span> <span class="nf">commit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Commit the transaction.</span>
+
+<span class="sd">		If the transaction is a block, issue a COMMIT statement.</span>
+
+<span class="sd">		If the transaction was started inside a transaction block, it should be</span>
+<span class="sd">		identified as a savepoint, and the savepoint should be released.</span>
+
+<span class="sd">		If the transaction has already been committed, do nothing.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Transaction.rollback"><a class="viewcode-back" href="../../reference.html#postgresql.api.Transaction.rollback">[docs]</a>	<span class="k">def</span> <span class="nf">rollback</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Abort the transaction.</span>
+
+<span class="sd">		If the transaction is a savepoint, ROLLBACK TO the savepoint identifier.</span>
+
+<span class="sd">		If the transaction is a transaction block, issue an ABORT.</span>
+
+<span class="sd">		If the transaction has already been aborted, do nothing.</span>
+<span class="sd">		&quot;&quot;&quot;</span></div>
+	<span class="n">abort</span> <span class="o">=</span> <span class="n">rollback</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Run the `start` method and return self.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		If an exception is indicated by the parameters, run the transaction&#39;s</span>
+<span class="sd">		`rollback` method iff the database is still available(not closed), and</span>
+<span class="sd">		return a `False` value.</span>
+
+<span class="sd">		If an exception is not indicated, but the database&#39;s transaction state is</span>
+<span class="sd">		in error, run the transaction&#39;s `rollback` method and raise a</span>
+<span class="sd">		`postgresql.exceptions.InFailedTransactionError`. If the database is</span>
+<span class="sd">		unavailable, the `rollback` method should cause a</span>
+<span class="sd">		`postgresql.exceptions.ConnectionDoesNotExistError` exception to occur.</span>
+
+<span class="sd">		Otherwise, run the transaction&#39;s `commit` method.</span>
+
+<span class="sd">		When the `commit` is ultimately unsuccessful or not ran at all, the purpose</span>
+<span class="sd">		of __exit__ is to resolve the error state of the database iff the</span>
+<span class="sd">		database is available(not closed) so that more commands can be after the</span>
+<span class="sd">		block&#39;s exit.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+<div class="viewcode-block" id="Settings"><a class="viewcode-back" href="../../reference.html#postgresql.api.Settings">[docs]</a><span class="k">class</span> <span class="nc">Settings</span><span class="p">(</span>
+	<span class="n">Element</span><span class="p">,</span>
+	<span class="n">collections</span><span class="o">.</span><span class="n">MutableMapping</span>
+<span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A mapping interface to the session&#39;s settings. This provides a direct</span>
+<span class="sd">	interface to ``SHOW`` or ``SET`` commands. Identifiers and values need</span>
+<span class="sd">	not be quoted specially as the implementation must do that work for the</span>
+<span class="sd">	user.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;SETTINGS&#39;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return the setting corresponding to the given key. The result should be</span>
+<span class="sd">		consistent with what the ``SHOW`` command returns. If the key does not</span>
+<span class="sd">		exist, raise a KeyError.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Set the setting with the given key to the given value. The action should</span>
+<span class="sd">		be consistent with the effect of the ``SET`` command.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a context manager applying the given settings on __enter__ and</span>
+<span class="sd">		restoring the old values on __exit__.</span>
+
+<span class="sd">		&gt;&gt;&gt; with db.settings(search_path = &#39;local,public&#39;):</span>
+<span class="sd">		...  ...</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Settings.get"><a class="viewcode-back" href="../../reference.html#postgresql.api.Settings.get">[docs]</a>	<span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">default</span> <span class="o">=</span> <span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Get the setting with the corresponding key. If the setting does not</span>
+<span class="sd">		exist, return the `default`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Settings.getset"><a class="viewcode-back" href="../../reference.html#postgresql.api.Settings.getset">[docs]</a>	<span class="k">def</span> <span class="nf">getset</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">keys</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return a dictionary containing the key-value pairs of the requested</span>
+<span class="sd">		settings. If *any* of the keys do not exist, a `KeyError` must be raised</span>
+<span class="sd">		with the set of keys that did not exist.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Settings.update"><a class="viewcode-back" href="../../reference.html#postgresql.api.Settings.update">[docs]</a>	<span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mapping</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		For each key-value pair, incur the effect of the `__setitem__` method.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Settings.keys"><a class="viewcode-back" href="../../reference.html#postgresql.api.Settings.keys">[docs]</a>	<span class="k">def</span> <span class="nf">keys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator to all of the settings&#39; keys.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Settings.values"><a class="viewcode-back" href="../../reference.html#postgresql.api.Settings.values">[docs]</a>	<span class="k">def</span> <span class="nf">values</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator to all of the settings&#39; values.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Settings.items"><a class="viewcode-back" href="../../reference.html#postgresql.api.Settings.items">[docs]</a>	<span class="k">def</span> <span class="nf">items</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator to all of the setting value pairs.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div></div>
+<div class="viewcode-block" id="Database"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database">[docs]</a><span class="k">class</span> <span class="nc">Database</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	The interface to an individual database. `Connection` objects inherit from</span>
+<span class="sd">	this</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;DATABASE&#39;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.backend_id"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.backend_id">[docs]</a>	<span class="k">def</span> <span class="nf">backend_id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The backend&#39;s process identifier.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.version_info"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.version_info">[docs]</a>	<span class="k">def</span> <span class="nf">version_info</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		A version tuple of the database software similar Python&#39;s `sys.version_info`.</span>
+
+<span class="sd">		&gt;&gt;&gt; db.version_info</span>
+<span class="sd">		(8, 1, 3, &#39;&#39;, 0)</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.client_address"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.client_address">[docs]</a>	<span class="k">def</span> <span class="nf">client_address</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The client address that the server sees. This is obtainable by querying</span>
+<span class="sd">		the ``pg_catalog.pg_stat_activity`` relation.</span>
+
+<span class="sd">		`None` if unavailable.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.client_port"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.client_port">[docs]</a>	<span class="k">def</span> <span class="nf">client_port</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The client port that the server sees. This is obtainable by querying</span>
+<span class="sd">		the ``pg_catalog.pg_stat_activity`` relation.</span>
+
+<span class="sd">		`None` if unavailable.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.xact"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.xact">[docs]</a>	<span class="k">def</span> <span class="nf">xact</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">isolation</span> <span class="p">:</span> <span class="s">&quot;ISOLATION LEVEL to use with the transaction&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">mode</span> <span class="p">:</span> <span class="s">&quot;Mode of the transaction, READ ONLY or READ WRITE&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+	<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Transaction</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a `Transaction` object using the given keyword arguments as its</span>
+<span class="sd">		configuration.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.settings"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.settings">[docs]</a>	<span class="k">def</span> <span class="nf">settings</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Settings</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		A `Settings` instance bound to the `Database`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.do"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.do">[docs]</a>	<span class="k">def</span> <span class="nf">do</span><span class="p">(</span><span class="n">language</span><span class="p">,</span> <span class="n">source</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Execute a DO statement using the given language and source.</span>
+<span class="sd">		Always returns `None`.</span>
+
+<span class="sd">		Likely to be a function of Connection.execute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.execute"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.execute">[docs]</a>	<span class="k">def</span> <span class="nf">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Execute an arbitrary block of SQL. Always returns `None` and raise</span>
+<span class="sd">		an exception on error.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.prepare"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.prepare">[docs]</a>	<span class="k">def</span> <span class="nf">prepare</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sql</span> <span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Statement</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a new `Statement` instance bound to the connection</span>
+<span class="sd">		using the given SQL.</span>
+
+<span class="sd">		&gt;&gt;&gt; s = db.prepare(&quot;SELECT 1&quot;)</span>
+<span class="sd">		&gt;&gt;&gt; c = s()</span>
+<span class="sd">		&gt;&gt;&gt; c.next()</span>
+<span class="sd">		(1,)</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.statement_from_id"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.statement_from_id">[docs]</a>	<span class="k">def</span> <span class="nf">statement_from_id</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">statement_id</span> <span class="p">:</span> <span class="s">&quot;The statement&#39;s identification string.&quot;</span><span class="p">,</span>
+	<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Statement</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a `Statement` object that was already prepared on the</span>
+<span class="sd">		server. The distinction between this and a regular query is that it</span>
+<span class="sd">		must be explicitly closed if it is no longer desired, and it is</span>
+<span class="sd">		instantiated using the statement identifier as opposed to the SQL</span>
+<span class="sd">		statement itself.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.cursor_from_id"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.cursor_from_id">[docs]</a>	<span class="k">def</span> <span class="nf">cursor_from_id</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">cursor_id</span> <span class="p">:</span> <span class="s">&quot;The cursor&#39;s identification string.&quot;</span>
+	<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Cursor</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a `Cursor` object from the given `cursor_id` that was already</span>
+<span class="sd">		declared on the server.</span>
+
+<span class="sd">		`Cursor` objects created this way must *not* be closed when the object</span>
+<span class="sd">		is garbage collected. Rather, the user must explicitly close it for</span>
+<span class="sd">		the server resources to be released. This is in contrast to `Cursor`</span>
+<span class="sd">		objects that are created by invoking a `Statement` or a SRF</span>
+<span class="sd">		`StoredProcedure`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.proc"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.proc">[docs]</a>	<span class="k">def</span> <span class="nf">proc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">procedure_id</span> <span class="p">:</span> \
+			<span class="s">&quot;The procedure identifier; a valid ``regprocedure`` or Oid.&quot;</span>
+	<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StoredProcedure</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a `StoredProcedure` instance using the given identifier.</span>
+
+<span class="sd">		The `proc_id` given can be either an ``Oid``, or a ``regprocedure``</span>
+<span class="sd">		that identifies the stored procedure to create the interface for.</span>
+
+<span class="sd">		&gt;&gt;&gt; p = db.proc(&#39;version()&#39;)</span>
+<span class="sd">		&gt;&gt;&gt; p()</span>
+<span class="sd">		&#39;PostgreSQL 8.3.0&#39;</span>
+<span class="sd">		&gt;&gt;&gt; qstr = &quot;select oid from pg_proc where proname = &#39;generate_series&#39;&quot;</span>
+<span class="sd">		&gt;&gt;&gt; db.prepare(qstr).first()</span>
+<span class="sd">		1069</span>
+<span class="sd">		&gt;&gt;&gt; generate_series = db.proc(1069)</span>
+<span class="sd">		&gt;&gt;&gt; list(generate_series(1,5))</span>
+<span class="sd">		[1, 2, 3, 4, 5]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.reset"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.reset">[docs]</a>	<span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Reset the connection into it&#39;s original state.</span>
+
+<span class="sd">		Issues a ``RESET ALL`` to the database. If the database supports</span>
+<span class="sd">		removing temporary tables created in the session, then remove them.</span>
+<span class="sd">		Reapply initial configuration settings such as path.</span>
+
+<span class="sd">		The purpose behind this method is to provide a soft-reconnect method</span>
+<span class="sd">		that re-initializes the connection into its original state. One</span>
+<span class="sd">		obvious use of this would be in a connection pool where the connection</span>
+<span class="sd">		is being recycled.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.notify"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.notify">[docs]</a>	<span class="k">def</span> <span class="nf">notify</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">channels</span><span class="p">,</span> <span class="o">**</span><span class="n">channel_and_payload</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		NOTIFY the channels with the given payload.</span>
+
+<span class="sd">		Equivalent to issuing &quot;NOTIFY &lt;channel&gt;&quot; or &quot;NOTIFY &lt;channel&gt;, &lt;payload&gt;&quot;</span>
+<span class="sd">		for each item in `channels` and `channel_and_payload`. All NOTIFYs issued</span>
+<span class="sd">		*must* occur in the same transaction.</span>
+
+<span class="sd">		The items in `channels` can either be a string or a tuple. If a string,</span>
+<span class="sd">		no payload is given, but if an item is a `builtins.tuple`, the second item</span>
+<span class="sd">		will be given as the payload. `channels` offers a means to issue NOTIFYs</span>
+<span class="sd">		in guaranteed order.</span>
+
+<span class="sd">		The items in `channel_and_payload` are all payloaded NOTIFYs where the</span>
+<span class="sd">		keys are the channels and the values are the payloads. Order is undefined.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.listen"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.listen">[docs]</a>	<span class="k">def</span> <span class="nf">listen</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">channels</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Start listening to the given channels.</span>
+
+<span class="sd">		Equivalent to issuing &quot;LISTEN &lt;x&gt;&quot; for x in channels.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.unlisten"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.unlisten">[docs]</a>	<span class="k">def</span> <span class="nf">unlisten</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">channels</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Stop listening to the given channels.</span>
+
+<span class="sd">		Equivalent to issuing &quot;UNLISTEN &lt;x&gt;&quot; for x in channels.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.listening_channels"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.listening_channels">[docs]</a>	<span class="k">def</span> <span class="nf">listening_channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="s">&quot;channel name&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an *iterator* to all the channels currently being listened to.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Database.iternotifies"><a class="viewcode-back" href="../../reference.html#postgresql.api.Database.iternotifies">[docs]</a>	<span class="k">def</span> <span class="nf">iternotifies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">collections</span><span class="o">.</span><span class="n">Iterator</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return an iterator to the notifications received by the connection. The</span>
+<span class="sd">		iterator *must* produce triples in the form ``(channel, payload, pid)``.</span>
+
+<span class="sd">		If timeout is not `None`, `None` *must* be emitted at the specified</span>
+<span class="sd">		timeout interval. If the timeout is zero, all the pending notifications</span>
+<span class="sd">		*must* be yielded by the iterator and then `StopIteration` *must* be</span>
+<span class="sd">		raised.</span>
+
+<span class="sd">		If the connection is closed for any reason, the iterator *must* silently</span>
+<span class="sd">		stop by raising `StopIteration`. Further error control is then the</span>
+<span class="sd">		responsibility of the user.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div></div>
+<span class="k">class</span> <span class="nc">TypeIO</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;TYPIO&#39;</span>
+
+	<span class="k">def</span> <span class="nf">_e_metas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">return</span> <span class="p">()</span>
+
+<span class="k">class</span> <span class="nc">SocketFactory</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">fatal_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="ne">Exception</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The exception that is raised by sockets that indicate a fatal error.</span>
+
+<span class="sd">		The exception can be a base exception as the `fatal_error_message` will</span>
+<span class="sd">		indicate if that particular exception is actually fatal.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">timeout_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="ne">Exception</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The exception raised by the socket when an operation could not be</span>
+<span class="sd">		completed due to a configured time constraint.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">tryagain_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="ne">Exception</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The exception raised by the socket when an operation was interrupted, but</span>
+<span class="sd">		should be tried again.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">tryagain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">err</span> <span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Whether or not `err` suggests the operation should be tried again.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">fatal_exception_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">err</span> <span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		A function returning a string describing the failure, this string will be</span>
+<span class="sd">		given to the `postgresql.exceptions.ConnectionFailure` instance that will</span>
+<span class="sd">		subsequently be raised by the `Connection` object.</span>
+
+<span class="sd">		Returns `None` when `err` is not actually fatal.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">socket_secure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">socket</span> <span class="p">:</span> <span class="s">&quot;socket object&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s">&quot;secured socket&quot;</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return a reference to the secured socket using the given parameters.</span>
+
+<span class="sd">		If securing the socket for the connector is impossible, the user should</span>
+<span class="sd">		never be able to instantiate the connector with parameters requesting</span>
+<span class="sd">		security.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">socket_factory_sequence</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="p">[</span><span class="n">collections</span><span class="o">.</span><span class="n">Callable</span><span class="p">]:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return a sequence of `SocketCreator`s that `Connection` objects will use to</span>
+<span class="sd">		create the socket object.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="Category"><a class="viewcode-back" href="../../reference.html#postgresql.api.Category">[docs]</a><span class="k">class</span> <span class="nc">Category</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A category is an object that initializes the subject connection for a</span>
+<span class="sd">	specific purpose.</span>
+
+<span class="sd">	Arguably, a runtime class for use with connections.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;CATEGORY&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">()</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">connection</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Initialize the given connection in order to conform to the category.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+<div class="viewcode-block" id="Connector"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connector">[docs]</a><span class="k">class</span> <span class="nc">Connector</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	A connector is an object providing the necessary information to establish a</span>
+<span class="sd">	connection. This includes credentials, database settings, and many times</span>
+<span class="sd">	addressing information.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;CONNECTOR&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;driver&#39;</span><span class="p">,</span> <span class="s">&#39;category&#39;</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create and connect. Arguments will be given to the `Connection` instance&#39;s</span>
+<span class="sd">		`connect` method.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">connection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">user</span> <span class="p">:</span> <span class="s">&quot;required keyword specifying the user name(str)&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">password</span> <span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">database</span> <span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">settings</span> <span class="p">:</span> <span class="p">(</span><span class="nb">dict</span><span class="p">,</span> <span class="p">[(</span><span class="nb">str</span><span class="p">,</span><span class="nb">str</span><span class="p">)])</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">category</span> <span class="p">:</span> <span class="n">Category</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+	<span class="p">):</span>
+		<span class="k">if</span> <span class="n">user</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="c"># sure, it&#39;s a &quot;required&quot; keyword, makes for better documentation</span>
+			<span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;user&#39; is a required keyword&quot;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">user</span> <span class="o">=</span> <span class="n">user</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">password</span> <span class="o">=</span> <span class="n">password</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">database</span> <span class="o">=</span> <span class="n">database</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">settings</span> <span class="o">=</span> <span class="n">settings</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">category</span> <span class="o">=</span> <span class="n">category</span>
+		<span class="k">if</span> <span class="n">category</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">category</span><span class="p">,</span> <span class="n">Category</span><span class="p">):</span>
+			<span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;category&#39; must a be `None` or `postgresql.api.Category`&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Connection"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connection">[docs]</a><span class="k">class</span> <span class="nc">Connection</span><span class="p">(</span><span class="n">Database</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	The interface to a connection to a PostgreSQL database. This is a</span>
+<span class="sd">	`Database` interface with the additional connection management tools that</span>
+<span class="sd">	are particular to using a remote database.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;CONNECTION&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;connector&#39;</span><span class="p">,)</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Connection.connector"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connection.connector">[docs]</a>	<span class="k">def</span> <span class="nf">connector</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Connector</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The :py:class:`Connector` instance facilitating the `Connection` object&#39;s</span>
+<span class="sd">		communication and initialization.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Connection.query"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connection.query">[docs]</a>	<span class="k">def</span> <span class="nf">query</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Execution</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The :py:class:`Execution` instance providing a one-shot query interface::</span>
+
+<span class="sd">			connection.query.&lt;method&gt;(sql, *parameters) == connection.prepare(sql).&lt;method&gt;(*parameters)</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Connection.closed"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connection.closed">[docs]</a>	<span class="k">def</span> <span class="nf">closed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		`True` if the `Connection` is closed, `False` if the `Connection` is</span>
+<span class="sd">		open.</span>
+
+<span class="sd">		&gt;&gt;&gt; db.closed</span>
+<span class="sd">		True</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Connection.clone"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connection.clone">[docs]</a>	<span class="k">def</span> <span class="nf">clone</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s">&quot;Connection&quot;</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create another connection using the same factors as `self`. The returned</span>
+<span class="sd">		object should be open and ready for use.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Connection.connect"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connection.connect">[docs]</a>	<span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Establish the connection to the server and initialize the category.</span>
+
+<span class="sd">		Does nothing if the connection is already established.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">cat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">connector</span><span class="o">.</span><span class="n">category</span>
+		<span class="k">if</span> <span class="n">cat</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">cat</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Connection.close"><a class="viewcode-back" href="../../reference.html#postgresql.api.Connection.close">[docs]</a>	<span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Close the connection.</span>
+
+<span class="sd">		Does nothing if the connection is already closed.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Establish the connection and return self.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Closes the connection and returns `False` when an exception is passed in,</span>
+<span class="sd">		`True` when `None`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+<div class="viewcode-block" id="Driver"><a class="viewcode-back" href="../../reference.html#postgresql.api.Driver">[docs]</a><span class="k">class</span> <span class="nc">Driver</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	The `Driver` element provides the `Connector` and other information</span>
+<span class="sd">	pertaining to the implementation of the driver. Information about what the</span>
+<span class="sd">	driver supports is available in instances.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&quot;DRIVER&quot;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">()</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Driver.connect"><a class="viewcode-back" href="../../reference.html#postgresql.api.Driver.connect">[docs]</a>	<span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a connection using the given parameters for the Connector.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div></div>
+<div class="viewcode-block" id="Installation"><a class="viewcode-back" href="../../reference.html#postgresql.api.Installation">[docs]</a><span class="k">class</span> <span class="nc">Installation</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Interface to a PostgreSQL installation. Instances would provide various</span>
+<span class="sd">	information about an installation of PostgreSQL accessible by the Python</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&quot;INSTALLATION&quot;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">()</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Installation.version"><a class="viewcode-back" href="../../reference.html#postgresql.api.Installation.version">[docs]</a>	<span class="k">def</span> <span class="nf">version</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		A version string consistent with what `SELECT version()` would output.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Installation.version_info"><a class="viewcode-back" href="../../reference.html#postgresql.api.Installation.version_info">[docs]</a>	<span class="k">def</span> <span class="nf">version_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		A tuple specifying the version in a form similar to Python&#39;s</span>
+<span class="sd">		sys.version_info. (8, 3, 3, &#39;final&#39;, 0)</span>
+
+<span class="sd">		See `postgresql.versionstring`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Installation.type"><a class="viewcode-back" href="../../reference.html#postgresql.api.Installation.type">[docs]</a>	<span class="k">def</span> <span class="nf">type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The &quot;type&quot; of PostgreSQL. Normally, the first component of the string</span>
+<span class="sd">		returned by pg_config.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Installation.ssl"><a class="viewcode-back" href="../../reference.html#postgresql.api.Installation.ssl">[docs]</a>	<span class="k">def</span> <span class="nf">ssl</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Whether the installation supports SSL.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div></div>
+<div class="viewcode-block" id="Cluster"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster">[docs]</a><span class="k">class</span> <span class="nc">Cluster</span><span class="p">(</span><span class="n">Element</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Interface to a PostgreSQL cluster--a data directory. An implementation of</span>
+<span class="sd">	this provides a means to control a server.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">_e_label</span> <span class="o">=</span> <span class="s">&#39;CLUSTER&#39;</span>
+	<span class="n">_e_factors</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;installation&#39;</span><span class="p">,</span> <span class="s">&#39;data_directory&#39;</span><span class="p">)</span>
+
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.installation"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.installation">[docs]</a>	<span class="k">def</span> <span class="nf">installation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Installation</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The installation used by the cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.data_directory"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.data_directory">[docs]</a>	<span class="k">def</span> <span class="nf">data_directory</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		The path to the data directory of the cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.init"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.init">[docs]</a>	<span class="k">def</span> <span class="nf">init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">initdb</span> <span class="p">:</span> <span class="s">&quot;path to the initdb to use&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">user</span> <span class="p">:</span> <span class="s">&quot;name of the cluster&#39;s superuser&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">password</span> <span class="p">:</span> <span class="s">&quot;superuser&#39;s password&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">encoding</span> <span class="p">:</span> <span class="s">&quot;the encoding to use for the cluster&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">locale</span> <span class="p">:</span> <span class="s">&quot;the locale to use for the cluster&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">collate</span> <span class="p">:</span> <span class="s">&quot;the collation to use for the cluster&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">ctype</span> <span class="p">:</span> <span class="s">&quot;the ctype to use for the cluster&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">monetary</span> <span class="p">:</span> <span class="s">&quot;the monetary to use for the cluster&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">numeric</span> <span class="p">:</span> <span class="s">&quot;the numeric to use for the cluster&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">time</span> <span class="p">:</span> <span class="s">&quot;the time to use for the cluster&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">text_search_config</span> <span class="p">:</span> <span class="s">&quot;default text search configuration&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+		<span class="n">xlogdir</span> <span class="p">:</span> <span class="s">&quot;location for the transaction log directory&quot;</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create the cluster at the `data_directory` associated with the Cluster</span>
+<span class="sd">		instance.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.drop"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.drop">[docs]</a>	<span class="k">def</span> <span class="nf">drop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Kill the server and completely remove the data directory.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.start"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.start">[docs]</a>	<span class="k">def</span> <span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Start the cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.stop"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.stop">[docs]</a>	<span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Signal the server to shutdown.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.kill"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.kill">[docs]</a>	<span class="k">def</span> <span class="nf">kill</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Kill the server.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.restart"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.restart">[docs]</a>	<span class="k">def</span> <span class="nf">restart</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Restart the cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.wait_until_started"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.wait_until_started">[docs]</a>	<span class="k">def</span> <span class="nf">wait_until_started</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">timeout</span> <span class="p">:</span> <span class="s">&quot;maximum time to wait&quot;</span> <span class="o">=</span> <span class="mi">10</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		After the start() method is ran, the database may not be ready for use.</span>
+<span class="sd">		This method provides a mechanism to block until the cluster is ready for</span>
+<span class="sd">		use.</span>
+
+<span class="sd">		If the `timeout` is reached, the method *must* throw a</span>
+<span class="sd">		`postgresql.exceptions.ClusterTimeoutError`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.wait_until_stopped"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.wait_until_stopped">[docs]</a>	<span class="k">def</span> <span class="nf">wait_until_stopped</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+		<span class="n">timeout</span> <span class="p">:</span> <span class="s">&quot;maximum time to wait&quot;</span> <span class="o">=</span> <span class="mi">10</span>
+	<span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		After the stop() method is ran, the database may still be running.</span>
+<span class="sd">		This method provides a mechanism to block until the cluster is completely</span>
+<span class="sd">		shutdown.</span>
+
+<span class="sd">		If the `timeout` is reached, the method *must* throw a</span>
+<span class="sd">		`postgresql.exceptions.ClusterTimeoutError`.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="Cluster.settings"><a class="viewcode-back" href="../../reference.html#postgresql.api.Cluster.settings">[docs]</a>	<span class="k">def</span> <span class="nf">settings</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		A `Settings` interface to the ``postgresql.conf`` file associated with the</span>
+<span class="sd">		cluster.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Start the cluster if it&#39;s not already running, and wait for it to be</span>
+<span class="sd">		readied.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+	<span class="nd">@abc.abstractmethod</span>
+	<span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Stop the cluster and wait for it to shutdown *iff* it was started by the</span>
+<span class="sd">		corresponding enter.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+</div>
+<span class="n">__docformat__</span> <span class="o">=</span> <span class="s">&#39;reStructuredText&#39;</span>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+	<span class="n">help</span><span class="p">(</span><span class="n">__package__</span> <span class="o">+</span> <span class="s">&#39;.api&#39;</span><span class="p">)</span>
+<span class="c">##</span>
+<span class="c"># vim: ts=3:sw=3:noet:</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">py-postgresql 1.1.0 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../postgresql.html" >postgresql</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Python+Postgres.
+      Last updated on Oct 08, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
