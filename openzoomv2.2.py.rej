@@ -1,0 +1,9 @@
+diff a/openzoomv2.2.py b/openzoomv2.2.py	(rejected hunks)
+@@ -14,6 +14,7 @@
+ #subst Z: C:\zoom
+ #
+ #if your having trouble with a string having invisible chars .rstrip() might help
++#test for github
+ 
+ def config():
+     '''Reads the config.zoom file, containing server names, length for 
