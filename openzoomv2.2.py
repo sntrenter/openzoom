@@ -304,6 +304,20 @@ def clicks():
     file.close()
 
 
+def networkfailure():\
+    '''
+    TODO:
+    -implement in main
+    -find out if database needs to be used
+    -reorginize code
+    -make a bigger commit    
+    '''
+    file = open('z:/zoom/FAILED.txt','w')
+    file.write()
+    file.close()    
+    pass
+
+
 def main():
     USER = getpass.getuser()
     #delete what is left in trash folder
