@@ -11,7 +11,10 @@ import getpass
 
 #this command will help you test on a computer without an attached 
 #drive named zoom
-#subst Z: C:\zoom 
+#subst Z: C:\zoom
+#
+#if your having trouble with a string having invisible chars .rstrip() might help
+#test
 
 def config():
     '''Reads the config.zoom file, containing server names, length for 
@@ -221,7 +224,7 @@ def joinmeeting(meetingid):
     time.sleep(.25)
     pyautogui.press('enter')
     time.sleep(3)
-    pyautogui.typewrite(meetingid)
+    pyautogui.typewrite(meetingid.rstrip())
     time.sleep(.25)
     pyautogui.press('tab')
     time.sleep(.25)
@@ -301,6 +304,20 @@ def clicks():
     file.close()
 
 
+def networkfailure():\
+    '''
+    TODO:
+    -implement in main
+    -find out if database needs to be used
+    -reorginize code
+    -make a bigger commit    
+    '''
+    file = open('z:/zoom/FAILED.txt','w')
+    file.write()
+    file.close()    
+    pass
+
+
 def main():
     USER = getpass.getuser()
     #delete what is left in trash folder
@@ -310,6 +327,8 @@ def main():
     except:
         print("couldn't delete trash")
 
+
+
         
     #attaches z drive incase of earlier failure
     try:
@@ -318,19 +337,18 @@ def main():
     except:
         print("couldn't attach the z drive")
 
-    try:
-        os.startfile("z:\zoom\base.ahk")
-    except:
-        print("failed to start base.ahk")
-
 
     try:
-        click()
+        clicks()
     except:
         print('failed to notify host to cycle monitors')
     time.sleep(10)#give time for the monitor cycle to happen
 
 
+    try:
+        os.startfile("z:\zoom\\base.ahk")
+    except:
+        print("failed to start base.ahk")
     try:    
         server1,server2,server3,server4,timeout,pgSQLpt,webport = config()
         print("server1:",server1)
@@ -346,33 +364,33 @@ def main():
 
     #this will fail if no sign in file is found on the 
     #z drive
-    signin()
+##    signin()
 
     #this block tells us wether we are joining a 
     #meeting or hosting a meeting
-    meetingid = getmeetingid()
-    meetingid = meetingid[16:]
-    meetingid = meetingid.split('/')
-    meetingtype = meetingid[0]
-    try:
-        meetingid = meetingid[1]
-    except:
-        print('trouble with the meeting id')
-    print('\n\n\n',meetingtype,meetingid)
+##    meetingid = getmeetingid()
+##    meetingid = meetingid[16:]
+##    meetingid = meetingid.split('/')
+##    meetingtype = meetingid[0]
+##    try:
+##        meetingid = meetingid[1]
+##    except:
+##        print('trouble with the meeting id')
+##    print('\n\n\n',meetingtype,meetingid)
 
 
     #msudirectadmin
-    os.startfile('C:/users/'+USER+'/AppData/Roaming/Zoom/bin/Zoom.exe')
-    time.sleep(5)
-    if meetingtype == 'j':
-        joinmeeting(meetingid)
-    else:
-        hostmeeting()
+##    os.startfile('C:/users/'+USER+'/AppData/Roaming/Zoom/bin/Zoom.exe')
+##    time.sleep(5)
+##    if meetingtype == 'j':
+##        joinmeeting(meetingid)
+##    else:
+##        hostmeeting()
 
 
     
     #sleep to allow for zoom to fully come up
-    print('sleeping to allow zoom to fully come up...')
+##    print('sleeping to allow zoom to fully come up...')
     time.sleep(10)
     
 
@@ -403,32 +421,17 @@ def main():
     print(server1,server2)
     while(True):
         print('in while state, checking to see if meeting is over')
-        #check server 1
-        if is_connected(server1[7:-7],webport) == True:
-            try:
-                print("checking server1")
-                ret = urllib.request.urlopen(server1[:-7]+':'+webport+"/meets/"+host)
-                print(ret)
-            except: 
-                shutdown(timeout)
-                print('shutdown activated')
-                pass
-        #check server 2  
-        if is_connected(server2[7:-7],webport) == True:
-            try:
-                print("checking server 2")
-                ret = urllib.request.urlopen(server2[:-7]+':'+webport+"/meets/"+host)
-                print(ret)
-            except:
-                shutdown(timeout)
-                print('shutdown activated')
-                pass
+        oshost = 'Z:/Zoom/'+host
+
+        if os.path.exists(oshost.rstrip()) == False:
+            shutdown(timeout)
 
         print('Checking to make sure meeting connection is in ok state')
         netstat()
         if conn == 'ESTABLISHED' and status == False:
             status = True
-            print('connection is ESTABLISHED')
+
+
             t = gettime()
             date = getdate()
             sendtodb(host,task,t,date,net,conn,server3,pgSQLpt) 
