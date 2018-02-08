@@ -115,11 +115,15 @@ def sendtodb(host,task,time,date,net,conn,server,port):
     except:
         print('the database deposite failed')
 
-def failed_connection(host,task,time,date,net,con):
+
+def failed_connection(host='default host',task = 'default task',\
+                      time = 'default time',date = 'default date',\
+                      net = 'default net',conn = 'default conn'):
     #connection.txt is the file i will
     #writes FAILED when failed
     #creates empty file at beginning of program
     #seperate fields by semi colons
+    text = "FAILED;"+host+";"+task+";"+time+";"+date+";"+net+";"+conn+";"
     
     pass
 
@@ -218,19 +222,6 @@ def clicks():
     file = open('z:/zoom/click.zoom','w')
     file.close()
 
-
-def networkfailure():\
-    '''
-    TODO:
-    -implement in main
-    -find out if database needs to be used
-    -reorginize code
-    -make a bigger commit    
-    '''
-    file = open('z:/zoom/FAILED.txt','w')
-    file.write()
-    file.close()    
-    pass
 
 
 def main():
