@@ -56,8 +56,6 @@ def netstat():
     conn is global and does not need to be returned, netstat is returned with the unresolved(
     resolving takes to long in production) ip address. '''
 
-    #TODO: make this function return a tuple so conn isn't global
-    global conn
     netstat = "failed"
     conn = "failed"
     try:
@@ -72,7 +70,7 @@ def netstat():
         #couldn"t find the zoom connection
         pass
     print(netstat)
-    return netstat
+    return netstat,conn
 
 
 
@@ -117,6 +115,13 @@ def sendtodb(host,task,time,date,net,conn,server,port):
     except:
         print('the database deposite failed')
 
+def failed_connection(host,task,time,date,net,con):
+    #connection.txt is the file i will
+    #writes FAILED when failed
+    #creates empty file at beginning of program
+    #seperate fields by semi colons
+    
+    pass
 
 
 
@@ -280,7 +285,7 @@ def main():
     host = hostname()
 
     print("netstat:",end=" ")
-    net = netstat()
+    net,conn = netstat()
 
     print("connection:",end=" ")
     print(conn)
