@@ -206,96 +206,6 @@ def readfile(location):
 
 
 
-def joinmeeting(meetingid):
-    '''the zoom exec is already supposed to have started when this
-    runs, this just tabs through menues to the join meeting section, opening it up.
-    this is a fragile function and can be broken if windows does
-    something weird on startup or zoom doesn't start correctly '''
-    print('join meeting')
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('enter')
-    time.sleep(3)
-    pyautogui.typewrite(meetingid.rstrip())
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('enter')
-    time.sleep(3)
-    pyautogui.press('enter')
-
-def hostmeeting():
-    '''goes through menue and clicks host meeting, has the same fragility 
-    that join meeting has'''
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('tab')
-    time.sleep(.25)
-    pyautogui.press('enter')
-    time.sleep(3)
-    pyautogui.press('enter')
-
-
-def signin():
-    '''this runs independently of join and host meeting, if there
-    is a file named signin.zoom in the z drive, it will read the 
-    first line as the username and the second line as the password
-    and sign in to zoom, this is also fragile like joinmeeting and hostmeeting,
-    you may have to kill the zoom process before starting it up again'''
-    try:
-        info = readfile('z:/zoom/signin.zoom')
-        info[0] = info[0].rstrip()
-        info[1] = info[1].rstrip()
-        print(info)
-        os.startfile('C:/users/msudirectadmin/AppData/Roaming/Zoom/bin/Zoom.exe')
-        print('working')
-        time.sleep(3)
-        pyautogui.press('tab')
-        time.sleep(.25)
-        pyautogui.press('tab')
-        time.sleep(.25)
-        pyautogui.press('enter')
-        time.sleep(.25)
-        pyautogui.typewrite(info[0])
-        time.sleep(.25)
-        pyautogui.press('tab')
-        time.sleep(.25)
-        pyautogui.typewrite(info[1])
-        time.sleep(.25)
-        pyautogui.press('tab')
-        time.sleep(.25)
-        pyautogui.press('space')
-        time.sleep(.25)
-        pyautogui.press('tab')
-        time.sleep(.25)
-        pyautogui.press('enter')
-        time.sleep(3)
-        os.remove('z:/zoom/signin.zoom')
-        
-    except:
-        pass
-
-
 
 def clicks():
     '''writes click.zoom to the z drive, letting the linux 
@@ -362,36 +272,7 @@ def main():
         print('failed to get config.zoom')
 
 
-    #this will fail if no sign in file is found on the 
-    #z drive
-##    signin()
 
-    #this block tells us wether we are joining a 
-    #meeting or hosting a meeting
-##    meetingid = getmeetingid()
-##    meetingid = meetingid[16:]
-##    meetingid = meetingid.split('/')
-##    meetingtype = meetingid[0]
-##    try:
-##        meetingid = meetingid[1]
-##    except:
-##        print('trouble with the meeting id')
-##    print('\n\n\n',meetingtype,meetingid)
-
-
-    #msudirectadmin
-##    os.startfile('C:/users/'+USER+'/AppData/Roaming/Zoom/bin/Zoom.exe')
-##    time.sleep(5)
-##    if meetingtype == 'j':
-##        joinmeeting(meetingid)
-##    else:
-##        hostmeeting()
-
-
-    
-    #sleep to allow for zoom to fully come up
-##    print('sleeping to allow zoom to fully come up...')
-    time.sleep(10)
     
 
     #preparing for initail database deposite
