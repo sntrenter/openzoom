@@ -123,10 +123,16 @@ def failed_connection(host='default host',task = 'default task',\
     #writes FAILED when failed
     #creates empty file at beginning of program
     #seperate fields by semi colons
-    text = "FAILED;"+host+";"+task+";"+time+";"+date+";"+net+";"+conn+";"
-    
-    pass
+    text = "FAILED;"+host+";"+task+";"+time+";"+date+";"+net+";"+conn
+    file = open('z:/zoom/connection.txt','w')
+    file.write(text)
+    file.close()
 
+def connection_start():
+    #just creates empty file
+    file = open('z:/zoom/connection.txt','w')
+    file.close()
+    
 
 
 
@@ -291,7 +297,7 @@ def main():
     date = getdate()
 
     #the data base deposite
-    sendtodb(host,task,t,date,net,conn,server3,pgSQLpt)
+    #sendtodb(host,task,t,date,net,conn,server3,pgSQLpt)###############
 
 
     status = True 
@@ -311,13 +317,13 @@ def main():
 
             t = gettime()
             date = getdate()
-            sendtodb(host,task,t,date,net,conn,server3,pgSQLpt) 
+            #sendtodb(host,task,t,date,net,conn,server3,pgSQLpt) #############################
         if conn != 'ESTABLISHED' and status == True:
             status = False
             print('connection is not ESTABLISHED')
             t = gettime()
             date = getdate()
-            sendtodb(host,task,t,date,net,conn,server3,pgSQLpt)
+            #sendtodb(host,task,t,date,net,conn,server3,pgSQLpt) ##########################
 
         time.sleep(10)    
 main()
